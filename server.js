@@ -7,11 +7,7 @@ const { appendToSheet } = require('./googleSheet');
 const app = express();
 app.use(bodyParser.json());
 
-const userState = {}; // 🔁 प्रत्येक युजरसाठी conversation state ठेवतो
-
-app.get('/healthz', (req, res) => {
-    res.status(200).send('OK');
-});
+const sessions = {}; // 👉 प्रत्येक युजरसाठी स्टेट ट्रॅक करण्यासाठी
 
 app.get('/webhook', (req, res) => {
     const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
@@ -40,56 +36,55 @@ app.post('/webhook', async (req, res) => {
         const from = message?.from;
         const msg_body = message?.text?.body?.trim();
 
-        if (!msg_body) return res.sendStatus(200);
+        let reply = "";
+        let user = sessions[from] || { step: 0, loanType: "", income: "", city: "", amount: "" };
 
-        let reply = '';
-        const state = userState[from] || { step: 0, loanType: '', income: '', city: '', amount: '' };
-
-        // 🔁 Step-by-step flow
-        if (state.step === 0) {
-            if (/hi|hello|loan|apply/i.test(msg_body)) {
-                reply = `Loan Helpline वर आपले स्वागत आहे! 🙏\n\nकृपया खालीलपैकी एक पर्याय निवडा:\n1️⃣ Home Loan\n2️⃣ Personal Loan\n3️⃣ Balance Transfer\n4️⃣ Business Loan\n5️⃣ Mortgage Loan\n\n👉 कृपया फक्त क्रमांक पाठवा (उदा. 1)`;
-                state.step = 1;
-            } else {
-                reply = `🙏 Loan Helpline वर आपले स्वागत आहे!\n\nकृपया loan type निवडण्यासाठी 'loan' किंवा 'hi' असा मेसेज पाठवा.`;
-            }
-        } else if (state.step === 1) {
-            const loans = {
-                1: 'Home Loan',
-                2: 'Personal Loan',
-                3: 'Balance Transfer',
-                4: 'Business Loan',
-                5: 'Mortgage Loan',
-            };
-            const choice = parseInt(msg_body);
-            if (loans[choice]) {
-                state.loanType = loans[choice];
-                reply = `📝 कृपया तुमचं मासिक उत्पन्न सांगा (उदा: ₹30000)`;
-                state.step = 2;
-            } else {
-                reply = `❗ कृपया वैध loan प्रकार निवडा (1 ते 5 पैकी एक क्रमांक).`;
-            }
-        } else if (state.step === 2) {
-            state.income = msg_body;
-            reply = `🌍 तुमचं शहर/गाव सांगा (उदा: Pune)`;
-            state.step = 3;
-        } else if (state.step === 3) {
-            state.city = msg_body;
-            reply = `💰 तुम्हाला किती लोन हवं आहे? (उदा: ₹15 लाख)`;
-            state.step = 4;
-        } else if (state.step === 4) {
-            state.amount = msg_body;
-            reply = `🎉 धन्यवाद! तुमचं ${state.loanType} अर्ज आम्ही प्राप्त केलं आहे. आमचे प्रतिनिधी लवकरच संपर्क करतील.`;
-
-            // ✅ Google Sheet ला माहिती पाठवा
-            await appendToSheet(from, `${state.loanType} | Income: ${state.income} | City: ${state.city} | Amount: ${state.amount}`);
-
-            // ✅ reset state
-            userState[from] = { step: 0 };
+        if (/^(hi|hello|loan|i want to apply for a loan)$/i.test(msg_body)) {
+            reply = "Loan Helpline वर आपले स्वागत आहे! 🙏\n\nकृपया खालीलपैकी एक पर्याय निवडा:\n1️⃣ Home Loan\n2️⃣ Personal Loan\n3️⃣ Balance Transfer\n4️⃣ Business Loan\n5️⃣ Mortgage Loan\n\n👉 कृपया फक्त क्रमांक पाठवा (उदा. 1)";
+            user = { step: 1 };
         }
 
-        // Store updated state
-        userState[from] = state;
+        else if (user.step === 1 && /^[1-5]$/.test(msg_body)) {
+            const loanOptions = {
+                1: "Home Loan",
+                2: "Personal Loan",
+                3: "Balance Transfer",
+                4: "Business Loan",
+                5: "Mortgage Loan"
+            };
+            user.loanType = loanOptions[msg_body];
+            reply = "📝 कृपया तुमचं मासिक उत्पन्न सांगा (उदा: ₹30000)";
+            user.step = 2;
+        }
+
+        else if (user.step === 2) {
+            user.income = msg_body;
+            reply = "🌍 तुमचं शहर/गाव सांगा (उदा: Pune)";
+            user.step = 3;
+        }
+
+        else if (user.step === 3) {
+            user.city = msg_body;
+            reply = "💰 तुम्हाला किती लोन हवं आहे? (उदा: ₹15 लाख)";
+            user.step = 4;
+        }
+
+        else if (user.step === 4) {
+            user.amount = msg_body;
+            reply = "🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केलं आहे. आमचे प्रतिनिधी लवकरच संपर्क करतील.";
+            user.step = 0;
+
+            // ✅ Google Sheet मध्ये साठवा
+            const fullLead = `Loan Type: ${user.loanType}, Income: ${user.income}, City: ${user.city}, Amount: ${user.amount}`;
+            await appendToSheet(from, fullLead);
+        }
+
+        else {
+            reply = "🙏 Loan Helpline वर आपले स्वागत आहे!\n\nकृपया खालीलपैकी एक पर्याय निवडा:\n1️⃣ Home Loan\n2️⃣ Personal Loan\n3️⃣ Balance Transfer\n4️⃣ Business Loan\n5️⃣ Mortgage Loan\n\n👉 कृपया फक्त क्रमांक पाठवा (उदा. 1)";
+            user = { step: 1 };
+        }
+
+        sessions[from] = user;
 
         await axios.post(`https://graph.facebook.com/v18.0/${phone_number_id}/messages`, {
             messaging_product: 'whatsapp',
