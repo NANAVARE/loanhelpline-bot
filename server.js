@@ -7,22 +7,33 @@ const { appendToSheet } = require('./googleSheet');
 const app = express();
 app.use(bodyParser.json());
 
+// ✅ Render साठी health check route
+app.get('/healthz', (req, res) => {
+    res.status(200).send('OK');
+});
+
+// ✅ Webhook GET verification route (Meta callback)
 app.get('/webhook', (req, res) => {
     const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
     const challenge = req.query['hub.challenge'];
 
+    console.log("Webhook GET called");
+    console.log({ mode, token, VERIFY_TOKEN });
+
     if (mode && token) {
         if (mode === 'subscribe' && token === VERIFY_TOKEN) {
             console.log('WEBHOOK_VERIFIED');
             res.status(200).send(challenge);
         } else {
+            console.log('❌ Token mismatch');
             res.sendStatus(403);
         }
     }
 });
 
+// ✅ Webhook POST handler (WhatsApp message receive)
 app.post('/webhook', async (req, res) => {
     const body = req.body;
 
@@ -36,58 +47,30 @@ app.post('/webhook', async (req, res) => {
 
         if (msg_body) {
             let reply = '';
+
             if (/^\d+$/.test(msg_body)) {
                 const choice = parseInt(msg_body.trim());
                 switch (choice) {
                     case 1:
-                        reply = "🏠 आपण निवडलं आहे: Home Loan
-
-✅ Eligibility साठी माहिती पाठवा:
-- 🧾 Monthly Income
-- 📍 Property Location
-- 💰 Loan Amount";
+                        reply = "🏠 आपण निवडलं आहे: Home Loan\n\n✅ Eligibility साठी माहिती पाठवा:\n- 🧾 Monthly Income\n- 📍 Property Location\n- 💰 Loan Amount";
                         break;
                     case 2:
-                        reply = "💼 आपण निवडलं आहे: Personal Loan
-
-✅ Eligibility साठी माहिती पाठवा:
-- 🧾 Monthly Income
-- 📍 Current City
-- 💰 Loan Amount";
+                        reply = "💼 आपण निवडलं आहे: Personal Loan\n\n✅ Eligibility साठी माहिती पाठवा:\n- 🧾 Monthly Income\n- 📍 Current City\n- 💰 Loan Amount";
                         break;
                     case 3:
-                        reply = "🏢 आपण निवडलं आहे: Business Loan
-
-✅ Eligibility साठी माहिती पाठवा:
-- 🧾 Monthly Income
-- 📍 Business Location
-- 💰 Required Loan";
+                        reply = "🏢 आपण निवडलं आहे: Business Loan\n\n✅ Eligibility साठी माहिती पाठवा:\n- 🧾 Monthly Income\n- 📍 Business Location\n- 💰 Required Loan";
                         break;
                     case 4:
-                        reply = "🔁 आपण निवडलं आहे: Balance Transfer
-
-✅ Eligibility साठी माहिती पाठवा:
-- 🧾 Existing Loan EMI
-- 📍 City
-- 💰 Balance Amount";
+                        reply = "🔁 आपण निवडलं आहे: Balance Transfer\n\n✅ Eligibility साठी माहिती पाठवा:\n- 🧾 Existing Loan EMI\n- 📍 City\n- 💰 Balance Amount";
                         break;
                     default:
                         reply = "❗कृपया 1 ते 4 पैकी एक क्रमांक टाका.";
                 }
             } else if (/income|loan|location|amount|city|emi/i.test(msg_body)) {
-                reply = "🎉 Thank you!
-तुमची माहिती आम्ही प्राप्त केली आहे. आमचे प्रतिनिधी लवकरच संपर्क करतील.";
+                reply = "🎉 Thank you!\nतुमची माहिती आम्ही प्राप्त केली आहे. आमचे प्रतिनिधी लवकरच संपर्क करतील.";
                 await appendToSheet(from, msg_body);
             } else {
-                reply = "🙏 Loan Helpline वर आपले स्वागत आहे!
-
-Please select the type of loan:
-1️⃣ Home Loan
-2️⃣ Personal Loan
-3️⃣ Business Loan
-4️⃣ Balance Transfer
-
-👉 कृपया एक क्रमांक टाका (1/2/3/4)";
+                reply = "🙏 Loan Helpline वर आपले स्वागत आहे!\n\nPlease select the type of loan:\n1️⃣ Home Loan\n2️⃣ Personal Loan\n3️⃣ Business Loan\n4️⃣ Balance Transfer\n\n👉 कृपया एक क्रमांक टाका (1/2/3/4)";
             }
 
             await axios.post(`https://graph.facebook.com/v18.0/${phone_number_id}/messages`, {
@@ -95,7 +78,9 @@ Please select the type of loan:
                 to: from,
                 text: { body: reply }
             }, {
-                headers: { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}` }
+                headers: {
+                    Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`
+                }
             });
         }
 
@@ -105,6 +90,7 @@ Please select the type of loan:
     }
 });
 
+// ✅ Server सुरू करा
 app.listen(process.env.PORT || 3000, () => {
-    console.log('Server is running...');
+    console.log('✅ Server is running...');
 });
