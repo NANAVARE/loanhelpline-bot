@@ -1,7 +1,6 @@
 const { google } = require('googleapis');
-const fs = require('fs');
+const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
 
-const credentials = JSON.parse(fs.readFileSync('./credentials.json'));
 
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
 const auth = new google.auth.JWT(
