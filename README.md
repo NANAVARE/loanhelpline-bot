@@ -12,3 +12,4 @@ This Node.js app powers a WhatsApp chatbot for LoanHelpline.co, using Meta's Clo
 1. Copy `.env.example` to `.env` and fill in the credentials.
 2. Add `credentials.json` for Google Sheets API access.
 3. Deploy on Render.com or similar.
+4. ✅ First commit done manually for Render deploy
