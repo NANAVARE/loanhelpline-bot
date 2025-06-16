@@ -1,24 +1,27 @@
 const { google } = require('googleapis');
-const credentials = require('./credentials.json');
+const fs = require('fs');
+
+const credentials = JSON.parse(fs.readFileSync('./credentials.json'));
 
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
 const auth = new google.auth.JWT(
   credentials.client_email,
   null,
-  credentials.private_key,
+  credentials.private_key.replace(/\\n/g, '\n'), // Fix multiline key
   SCOPES
 );
 
 const sheets = google.sheets({ version: 'v4', auth });
 
 const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
+const TAB_NAME = process.env.SHEET_TAB_NAME || 'Sheet1';
 
 async function appendToSheet(from, msg_body) {
   try {
     const values = [[new Date().toLocaleString(), from, msg_body]];
     await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID,
-      range: 'Sheet1!A1',
+      range: `${TAB_NAME}!A1`,
       valueInputOption: 'USER_ENTERED',
       resource: {
         values: values,
