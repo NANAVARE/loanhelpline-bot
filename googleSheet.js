@@ -1,23 +1,33 @@
 const { google } = require('googleapis');
-require('dotenv').config();
+const credentials = require('./credentials.json');
 
-async function appendToSheet(user, message) {
-    const auth = new google.auth.GoogleAuth({
-        keyFile: 'credentials.json',
-        scopes: ['https://www.googleapis.com/auth/spreadsheets']
+const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
+const auth = new google.auth.JWT(
+  credentials.client_email,
+  null,
+  credentials.private_key,
+  SCOPES
+);
+
+const sheets = google.sheets({ version: 'v4', auth });
+
+const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
+
+async function appendToSheet(from, msg_body) {
+  try {
+    const values = [[new Date().toLocaleString(), from, msg_body]];
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Sheet1!A1',
+      valueInputOption: 'USER_ENTERED',
+      resource: {
+        values: values,
+      },
     });
-
-    const client = await auth.getClient();
-    const sheets = google.sheets({ version: 'v4', auth: client });
-
-    const response = await sheets.spreadsheets.values.append({
-        spreadsheetId: process.env.SHEET_ID,
-        range: `${process.env.SHEET_TAB_NAME}!A1`,
-        valueInputOption: 'RAW',
-        resource: { values: [[new Date().toISOString(), user, message]] }
-    });
-
-    console.log('Sheet updated:', response.status);
+    console.log('✅ Google Sheet Updated');
+  } catch (error) {
+    console.error('❌ Error writing to Google Sheet:', error);
+  }
 }
 
 module.exports = { appendToSheet };
