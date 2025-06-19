@@ -53,7 +53,6 @@ app.post("/webhook", async (req, res) => {
       if (!userState[from + "_name"]) userState[from + "_name"] = name;
 
       const state = userState[from];
-
       let reply = "";
 
       if (
@@ -85,7 +84,7 @@ app.post("/webhook", async (req, res) => {
       } else if (state.step === "amount") {
         state.amount = msgBody;
 
-        // ✅ Google Sheet मध्ये entry टाका
+        // ✅ Google Sheet मध्ये entry टाका (with Status + Follow-up Date)
         await sheets.spreadsheets.values.append({
           spreadsheetId: SHEET_ID,
           range: `${SHEET_TAB_NAME}!A1`,
@@ -93,12 +92,14 @@ app.post("/webhook", async (req, res) => {
           requestBody: {
             values: [
               [
-                userState[from + "_name"], // Name
-                from, // Phone number
-                state.city,
-                state.income,
-                state.loanType,
-                state.amount,
+                userState[from + "_name"],             // Name
+                from,                                  // Phone number
+                state.city,                            // City
+                state.income,                          // Income
+                state.loanType,                        // Loan Type
+                state.amount,                          // Loan Amount
+                "New Lead",                            // ✅ Status
+                new Date().toLocaleDateString("en-IN") // ✅ Follow-up Date
               ],
             ],
           },
