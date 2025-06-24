@@ -1,4 +1,3 @@
-// server.js
 const express = require("express");
 const axios = require("axios");
 const { google } = require("googleapis");
@@ -10,6 +9,8 @@ const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const SHEET_ID = process.env.SHEET_ID;
 const SHEET_TAB_NAME = process.env.SHEET_TAB_NAME;
+const OFFERS_SHEET_ID = process.env.OFFERS_SHEET_ID;
+const OFFERS_TAB_NAME = process.env.OFFERS_TAB_NAME;
 const GOOGLE_CREDENTIALS_JSON = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
 
 const SCOPES = ["https://www.googleapis.com/auth/spreadsheets"];
@@ -23,7 +24,7 @@ const sheets = google.sheets({ version: "v4", auth });
 
 const userState = {};
 
-const phoneNumberId = "692637547265133";
+const phoneNumberId = process.env.PHONE_NUMBER_ID;
 const vinayakNumber = "918329569608";
 
 async function notifyVinayak(leadData) {
@@ -53,8 +54,8 @@ async function notifyVinayak(leadData) {
 async function getLoanOffer(loanType) {
   try {
     const result = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: "Loan Offers!A2:E1000",
+      spreadsheetId: OFFERS_SHEET_ID,
+      range: `${OFFERS_TAB_NAME}!A2:E1000`,
     });
     const rows = result.data.values;
     if (!rows || rows.length === 0) return null;
