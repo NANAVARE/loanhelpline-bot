@@ -5,18 +5,16 @@ const bodyParser = require("body-parser");
 const app = express();
 app.use(bodyParser.json());
 
-// ENV Vars
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const SHEET_ID = process.env.SHEET_ID;
 const SHEET_TAB_NAME = process.env.SHEET_TAB_NAME;
 const OFFERS_SHEET_ID = process.env.OFFERS_SHEET_ID;
 const OFFERS_TAB_NAME = process.env.OFFERS_TAB_NAME;
-const phoneNumberId = process.env.PHONE_NUMBER_ID;
 const GOOGLE_CREDENTIALS_JSON = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+const phoneNumberId = process.env.PHONE_NUMBER_ID;
 const vinayakNumber = "918329569608";
 
-// Google Sheets Auth
 const SCOPES = ["https://www.googleapis.com/auth/spreadsheets"];
 const auth = new google.auth.JWT(
   GOOGLE_CREDENTIALS_JSON.client_email,
@@ -26,10 +24,8 @@ const auth = new google.auth.JWT(
 );
 const sheets = google.sheets({ version: "v4", auth });
 
-// Store user conversation states
 const userState = {};
 
-// ✅ Vinayak Notification
 async function notifyVinayak(leadData) {
   const message = `🔔 नवीन लोन लीड:\n\n👤 नाव: ${leadData.name}\n📞 नंबर: ${leadData.phone}\n🏠 Loan Type: ${leadData.loanType}\n💰 उत्पन्न: ${leadData.income}\n🌍 शहर: ${leadData.city}\n💸 रक्कम: ${leadData.amount}`;
   try {
@@ -53,18 +49,24 @@ async function notifyVinayak(leadData) {
   }
 }
 
-// ✅ Get Loan Offer from Google Sheet
 async function getLoanOffer(loanType) {
   try {
     const result = await sheets.spreadsheets.values.get({
       spreadsheetId: OFFERS_SHEET_ID,
       range: `${OFFERS_TAB_NAME}!A2:E1000`,
     });
+
     const rows = result.data.values;
+    console.log("📊 Loan Offers fetched:", rows.length, "rows");
+
     if (!rows || rows.length === 0) return null;
 
     for (let row of rows) {
-      if ((row[0] || "").trim().toLowerCase() === loanType.trim().toLowerCase()) {
+      const sheetLoanType = (row[0] || "").trim().toLowerCase();
+      const inputLoanType = loanType.trim().toLowerCase();
+      console.log("🆚 Comparing:", sheetLoanType, "vs", inputLoanType);
+
+      if (sheetLoanType === inputLoanType) {
         return {
           bank_name: row[1] || "",
           interest_rate: row[2] || "",
@@ -80,7 +82,6 @@ async function getLoanOffer(loanType) {
   }
 }
 
-// ✅ Send Loan Offer (Template Message)
 async function sendLoanOffer(leadData) {
   console.log("📦 Sending loan offer to:", leadData.phone);
   console.log("🙍‍♂️ Name:", leadData.name);
@@ -88,16 +89,9 @@ async function sendLoanOffer(leadData) {
 
   const offer = await getLoanOffer(leadData.loanType);
   if (!offer) {
-    console.error("❌ No offer found for loan type:", leadData.loanType);
+    console.error("❌ No matching loan offer found.");
     return;
   }
-
-  const leadName = (leadData.name || "ग्राहक").trim();
-  const loanType = (leadData.loanType || "Loan").trim();
-  const bankName = (offer.bank_name || "NA").trim();
-  const interestRate = (offer.interest_rate || "-").toString().trim();
-  const topupStatus = (offer.topup_status || "NA").trim();
-  const processSpeed = (offer.process_speed || "NA").trim();
 
   try {
     await axios.post(
@@ -113,25 +107,13 @@ async function sendLoanOffer(leadData) {
             {
               type: "body",
               parameters: [
-                { type: "text", text: leadName },
-                { type: "text", text: loanType },
-                { type: "text", text: bankName },
-                { type: "text", text: interestRate },
-                { type: "text", text: topupStatus },
-                { type: "text", text: processSpeed },
+                { type: "text", text: leadData.name || "ग्राहक" },
+                { type: "text", text: leadData.loanType || "Loan" },
+                { type: "text", text: offer.bank_name || "-" },
+                { type: "text", text: offer.interest_rate || "-" },
+                { type: "text", text: offer.topup_status || "-" },
+                { type: "text", text: offer.process_speed || "-" },
               ],
-            },
-            {
-              type: "button",
-              sub_type: "quick_reply",
-              index: "0",
-              parameters: [{ type: "payload", payload: "apply_now" }],
-            },
-            {
-              type: "button",
-              sub_type: "quick_reply",
-              index: "1",
-              parameters: [{ type: "payload", payload: "call_back" }],
             },
           ],
         },
@@ -143,26 +125,24 @@ async function sendLoanOffer(leadData) {
         },
       }
     );
-    console.log("✅ Auto Loan Offer पाठवली:", leadData.phone);
+    console.log("✅ Loan Offer पाठवली:", leadData.phone);
   } catch (error) {
     console.error("❌ sendLoanOffer error:", error.response?.data || error.message);
   }
 }
 
-// ✅ Webhook Verification
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    console.log("WEBHOOK_VERIFIED");
+    console.log("✅ WEBHOOK_VERIFIED");
     res.status(200).send(challenge);
   } else {
     res.sendStatus(403);
   }
 });
 
-// ✅ Webhook Receiver
 app.post("/webhook", async (req, res) => {
   const body = req.body;
   if (body.object) {
@@ -174,7 +154,7 @@ app.post("/webhook", async (req, res) => {
     if (message && message.type === "text") {
       const from = message.from;
       const msgBody = message.text.body.trim();
-      const name = value?.contacts?.[0]?.profile?.name || "NA";
+      const name = value?.contacts?.[0]?.profile?.name || "ग्राहक";
 
       if (!userState[from]) userState[from] = {};
       if (!userState[from + "_name"]) userState[from + "_name"] = name;
@@ -269,14 +249,12 @@ app.post("/webhook", async (req, res) => {
       );
       console.log("📤 Reply sent to", from + ":", reply);
     }
-
     res.sendStatus(200);
   } else {
     res.sendStatus(404);
   }
 });
 
-// ✅ Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("✅ LoanHelpline Bot चालू आहे पोर्ट", PORT);
