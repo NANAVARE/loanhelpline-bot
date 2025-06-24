@@ -5,14 +5,18 @@ const bodyParser = require("body-parser");
 const app = express();
 app.use(bodyParser.json());
 
+// ENV Vars
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const SHEET_ID = process.env.SHEET_ID;
 const SHEET_TAB_NAME = process.env.SHEET_TAB_NAME;
 const OFFERS_SHEET_ID = process.env.OFFERS_SHEET_ID;
 const OFFERS_TAB_NAME = process.env.OFFERS_TAB_NAME;
+const phoneNumberId = process.env.PHONE_NUMBER_ID;
 const GOOGLE_CREDENTIALS_JSON = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+const vinayakNumber = "918329569608";
 
+// Google Sheets Auth
 const SCOPES = ["https://www.googleapis.com/auth/spreadsheets"];
 const auth = new google.auth.JWT(
   GOOGLE_CREDENTIALS_JSON.client_email,
@@ -22,15 +26,12 @@ const auth = new google.auth.JWT(
 );
 const sheets = google.sheets({ version: "v4", auth });
 
+// Store user conversation states
 const userState = {};
 
-const phoneNumberId = process.env.PHONE_NUMBER_ID;
-const vinayakNumber = "918329569608";
-
-// ✅ Notify Vinayak
+// ✅ Vinayak Notification
 async function notifyVinayak(leadData) {
   const message = `🔔 नवीन लोन लीड:\n\n👤 नाव: ${leadData.name}\n📞 नंबर: ${leadData.phone}\n🏠 Loan Type: ${leadData.loanType}\n💰 उत्पन्न: ${leadData.income}\n🌍 शहर: ${leadData.city}\n💸 रक्कम: ${leadData.amount}`;
-
   try {
     await axios.post(
       `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
@@ -52,7 +53,7 @@ async function notifyVinayak(leadData) {
   }
 }
 
-// ✅ Get Loan Offer
+// ✅ Get Loan Offer from Google Sheet
 async function getLoanOffer(loanType) {
   try {
     const result = await sheets.spreadsheets.values.get({
@@ -79,30 +80,24 @@ async function getLoanOffer(loanType) {
   }
 }
 
-// ✅ Send Auto WhatsApp Loan Offer
+// ✅ Send Loan Offer (Template Message)
 async function sendLoanOffer(leadData) {
+  console.log("📦 Sending loan offer to:", leadData.phone);
+  console.log("🙍‍♂️ Name:", leadData.name);
+  console.log("🏦 Loan Type:", leadData.loanType);
+
   const offer = await getLoanOffer(leadData.loanType);
   if (!offer) {
-    console.error("❌ Loan offer data मिळाली नाही:", leadData.loanType);
+    console.error("❌ No offer found for loan type:", leadData.loanType);
     return;
   }
 
-  // Validate fields
-  const requiredFields = [
-    leadData.name,
-    leadData.loanType,
-    offer.bank_name,
-    offer.interest_rate,
-    offer.topup_status,
-    offer.process_speed,
-  ];
-  if (requiredFields.some(field => !field || field.toString().trim() === "")) {
-    console.error("❌ sendLoanOffer error: रिकामी फील्ड आहे", {
-      leadData,
-      offer,
-    });
-    return;
-  }
+  const leadName = (leadData.name || "ग्राहक").trim();
+  const loanType = (leadData.loanType || "Loan").trim();
+  const bankName = (offer.bank_name || "NA").trim();
+  const interestRate = (offer.interest_rate || "-").toString().trim();
+  const topupStatus = (offer.topup_status || "NA").trim();
+  const processSpeed = (offer.process_speed || "NA").trim();
 
   try {
     await axios.post(
@@ -118,12 +113,12 @@ async function sendLoanOffer(leadData) {
             {
               type: "body",
               parameters: [
-                { type: "text", text: leadData.name },
-                { type: "text", text: leadData.loanType },
-                { type: "text", text: offer.bank_name },
-                { type: "text", text: offer.interest_rate },
-                { type: "text", text: offer.topup_status },
-                { type: "text", text: offer.process_speed },
+                { type: "text", text: leadName },
+                { type: "text", text: loanType },
+                { type: "text", text: bankName },
+                { type: "text", text: interestRate },
+                { type: "text", text: topupStatus },
+                { type: "text", text: processSpeed },
               ],
             },
             {
@@ -148,13 +143,13 @@ async function sendLoanOffer(leadData) {
         },
       }
     );
-    console.log("📨 Auto Loan Offer पाठवली:", leadData.phone);
+    console.log("✅ Auto Loan Offer पाठवली:", leadData.phone);
   } catch (error) {
     console.error("❌ sendLoanOffer error:", error.response?.data || error.message);
   }
 }
 
-// ✅ Webhook Verify
+// ✅ Webhook Verification
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -167,7 +162,7 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-// ✅ Webhook POST (Bot Logic)
+// ✅ Webhook Receiver
 app.post("/webhook", async (req, res) => {
   const body = req.body;
   if (body.object) {
@@ -274,12 +269,14 @@ app.post("/webhook", async (req, res) => {
       );
       console.log("📤 Reply sent to", from + ":", reply);
     }
+
     res.sendStatus(200);
   } else {
     res.sendStatus(404);
   }
 });
 
+// ✅ Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("✅ LoanHelpline Bot चालू आहे पोर्ट", PORT);
