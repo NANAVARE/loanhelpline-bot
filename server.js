@@ -2,6 +2,7 @@ const express = require("express");
 const axios = require("axios");
 const { google } = require("googleapis");
 const bodyParser = require("body-parser");
+
 const app = express();
 app.use(bodyParser.json());
 
@@ -12,10 +13,11 @@ const SHEET_TAB_NAME = process.env.SHEET_TAB_NAME;
 const OFFERS_SHEET_ID = process.env.OFFERS_SHEET_ID;
 const OFFERS_TAB_NAME = process.env.OFFERS_TAB_NAME;
 const GOOGLE_CREDENTIALS_JSON = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+
 const phoneNumberId = process.env.PHONE_NUMBER_ID;
 const vinayakNumber = "918329569608";
-
 const SCOPES = ["https://www.googleapis.com/auth/spreadsheets"];
+
 const auth = new google.auth.JWT(
   GOOGLE_CREDENTIALS_JSON.client_email,
   null,
@@ -26,6 +28,7 @@ const sheets = google.sheets({ version: "v4", auth });
 
 const userState = {};
 
+// Notify Vinayak
 async function notifyVinayak(leadData) {
   const message = `🔔 नवीन लोन लीड:\n\n👤 नाव: ${leadData.name}\n📞 नंबर: ${leadData.phone}\n🏠 Loan Type: ${leadData.loanType}\n💰 उत्पन्न: ${leadData.income}\n🌍 शहर: ${leadData.city}\n💸 रक्कम: ${leadData.amount}`;
   try {
@@ -49,29 +52,24 @@ async function notifyVinayak(leadData) {
   }
 }
 
+// Get offer from Google Sheet
 async function getLoanOffer(loanType) {
   try {
     const result = await sheets.spreadsheets.values.get({
       spreadsheetId: OFFERS_SHEET_ID,
       range: `${OFFERS_TAB_NAME}!A2:E1000`,
     });
-
     const rows = result.data.values;
-    console.log("📊 Loan Offers fetched:", rows.length, "rows");
-
     if (!rows || rows.length === 0) return null;
 
     for (let row of rows) {
       const sheetLoanType = (row[0] || "").trim().toLowerCase();
-      const inputLoanType = loanType.trim().toLowerCase();
-      console.log("🆚 Comparing:", sheetLoanType, "vs", inputLoanType);
-
-      if (sheetLoanType === inputLoanType) {
+      if (sheetLoanType === loanType.trim().toLowerCase()) {
         return {
-          bank_name: row[1] || "",
-          interest_rate: row[2] || "",
-          topup_status: row[3] || "",
-          process_speed: row[4] || "",
+          bank_name: row[1] || "-",
+          interest_rate: row[2] ? row[2].toString() : "-",
+          topup_status: row[3] || "-",
+          process_speed: row[4] || "-",
         };
       }
     }
@@ -82,16 +80,30 @@ async function getLoanOffer(loanType) {
   }
 }
 
+// Send loan offer to user
 async function sendLoanOffer(leadData) {
+  const offer = await getLoanOffer(leadData.loanType);
+  if (!offer) {
+    console.error("❌ Offer not found for loan type:", leadData.loanType);
+    return;
+  }
+
   console.log("📦 Sending loan offer to:", leadData.phone);
   console.log("🙍‍♂️ Name:", leadData.name);
   console.log("🏦 Loan Type:", leadData.loanType);
+  console.log("🏢 Bank:", offer.bank_name);
+  console.log("💰 Interest Rate:", offer.interest_rate);
+  console.log("📄 Top-up:", offer.topup_status);
+  console.log("⚡ Process:", offer.process_speed);
 
-  const offer = await getLoanOffer(leadData.loanType);
-  if (!offer) {
-    console.error("❌ No matching loan offer found.");
-    return;
-  }
+  const params = [
+    leadData.name || "-",
+    leadData.loanType || "-",
+    offer.bank_name,
+    offer.interest_rate,
+    offer.topup_status,
+    offer.process_speed,
+  ];
 
   try {
     await axios.post(
@@ -106,14 +118,19 @@ async function sendLoanOffer(leadData) {
           components: [
             {
               type: "body",
-              parameters: [
-                { type: "text", text: leadData.name || "ग्राहक" },
-                { type: "text", text: leadData.loanType || "Loan" },
-                { type: "text", text: offer.bank_name || "-" },
-                { type: "text", text: offer.interest_rate || "-" },
-                { type: "text", text: offer.topup_status || "-" },
-                { type: "text", text: offer.process_speed || "-" },
-              ],
+              parameters: params.map(text => ({ type: "text", text })),
+            },
+            {
+              type: "button",
+              sub_type: "quick_reply",
+              index: "0",
+              parameters: [{ type: "payload", payload: "apply_now" }],
+            },
+            {
+              type: "button",
+              sub_type: "quick_reply",
+              index: "1",
+              parameters: [{ type: "payload", payload: "call_back" }],
             },
           ],
         },
@@ -125,12 +142,13 @@ async function sendLoanOffer(leadData) {
         },
       }
     );
-    console.log("✅ Loan Offer पाठवली:", leadData.phone);
+    console.log("📨 Auto Loan Offer पाठवली:", leadData.phone);
   } catch (error) {
     console.error("❌ sendLoanOffer error:", error.response?.data || error.message);
   }
 }
 
+// Webhook verification
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -143,6 +161,7 @@ app.get("/webhook", (req, res) => {
   }
 });
 
+// Webhook POST
 app.post("/webhook", async (req, res) => {
   const body = req.body;
   if (body.object) {
@@ -154,7 +173,7 @@ app.post("/webhook", async (req, res) => {
     if (message && message.type === "text") {
       const from = message.from;
       const msgBody = message.text.body.trim();
-      const name = value?.contacts?.[0]?.profile?.name || "ग्राहक";
+      const name = value?.contacts?.[0]?.profile?.name || "NA";
 
       if (!userState[from]) userState[from] = {};
       if (!userState[from + "_name"]) userState[from + "_name"] = name;
@@ -226,7 +245,8 @@ app.post("/webhook", async (req, res) => {
           loanType: state.loanType,
         });
 
-        reply = "🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केलं आहे.\nआमचे प्रतिनिधी लवकरच संपर्क करतील.";
+        reply =
+          "🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केलं आहे.\nआमचे प्रतिनिधी लवकरच संपर्क करतील.";
         delete userState[from];
       } else {
         reply = "Loan साठी क्रमांक टाका:\n1️⃣ Home Loan\n2️⃣ Personal Loan\n...";
@@ -249,12 +269,14 @@ app.post("/webhook", async (req, res) => {
       );
       console.log("📤 Reply sent to", from + ":", reply);
     }
+
     res.sendStatus(200);
   } else {
     res.sendStatus(404);
   }
 });
 
+// Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("✅ LoanHelpline Bot चालू आहे पोर्ट", PORT);
