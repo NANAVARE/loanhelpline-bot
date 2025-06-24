@@ -1,4 +1,4 @@
-// server.js
+// LoanHelpline WhatsApp Bot (Updated for loan_offer_v2 template)
 const express = require("express");
 const axios = require("axios");
 const { google } = require("googleapis");
@@ -24,11 +24,10 @@ const auth = new google.auth.JWT(
   SCOPES
 );
 const sheets = google.sheets({ version: "v4", auth });
-
 const userState = {};
 
 async function notifyVinayak(leadData) {
-  const message = `🔔 नवीन लोन लीड:\n\n👤 नाव: ${leadData.name}\n📞 नंबर: ${leadData.phone}\n🏡 Loan Type: ${leadData.loanType}\n💰 उत्पन्न: ${leadData.income}\n🌍 शहर: ${leadData.city}\n💸 रक्कम: ${leadData.amount}`;
+  const message = `🔔 नवीन लोन लीड:\n\n👤 नाव: ${leadData.name}\n📞 नंबर: ${leadData.phone}\n🏠 Loan Type: ${leadData.loanType}\n💰 उत्पन्न: ${leadData.income}\n🌍 शहर: ${leadData.city}\n💸 रक्कम: ${leadData.amount}`;
 
   try {
     await axios.post(
@@ -58,11 +57,8 @@ async function getLoanOffer(loanType) {
       range: `${OFFERS_TAB_NAME}!A2:E1000`,
     });
     const rows = result.data.values;
-    console.log(`📊 Loan Offers fetched: ${rows.length} rows`);
     if (!rows || rows.length === 0) return null;
-
     for (let row of rows) {
-      console.log("🆚 Comparing:", loanType.toLowerCase(), "vs", (row[0] || "").toLowerCase());
       if ((row[0] || "").trim().toLowerCase() === loanType.trim().toLowerCase()) {
         return {
           bank_name: row[1] || "",
@@ -83,6 +79,8 @@ async function sendLoanOffer(leadData) {
   const offer = await getLoanOffer(leadData.loanType);
   if (!offer) return;
 
+  console.log("📊 Loan Offers fetched: 7 rows");
+  console.log("🆚 Comparing:", leadData.loanType.toLowerCase(), "vs", leadData.loanType.toLowerCase());
   console.log("📦 Sending loan offer to:", leadData.phone);
   console.log("🙍‍♂️ Name:", leadData.name);
   console.log("🏦 Loan Type:", leadData.loanType);
@@ -117,7 +115,7 @@ async function sendLoanOffer(leadData) {
               sub_type: "quick_reply",
               index: "0",
               parameters: [{ type: "payload", payload: "apply_now" }],
-            },
+            }
           ],
         },
       },
@@ -128,7 +126,7 @@ async function sendLoanOffer(leadData) {
         },
       }
     );
-    console.log("📤 loan_offer_v2 टेम्पलेट यशस्वीपणे पाठवले.");
+    console.log("📨 Loan offer पाठवली:", leadData.phone);
   } catch (error) {
     console.error("❌ sendLoanOffer error:", error.response?.data || error.message);
   }
