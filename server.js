@@ -27,6 +27,7 @@ const userState = {};
 const phoneNumberId = process.env.PHONE_NUMBER_ID;
 const vinayakNumber = "918329569608";
 
+// ✅ Notify Vinayak
 async function notifyVinayak(leadData) {
   const message = `🔔 नवीन लोन लीड:\n\n👤 नाव: ${leadData.name}\n📞 नंबर: ${leadData.phone}\n🏠 Loan Type: ${leadData.loanType}\n💰 उत्पन्न: ${leadData.income}\n🌍 शहर: ${leadData.city}\n💸 रक्कम: ${leadData.amount}`;
 
@@ -51,6 +52,7 @@ async function notifyVinayak(leadData) {
   }
 }
 
+// ✅ Get Loan Offer
 async function getLoanOffer(loanType) {
   try {
     const result = await sheets.spreadsheets.values.get({
@@ -77,9 +79,30 @@ async function getLoanOffer(loanType) {
   }
 }
 
+// ✅ Send Auto WhatsApp Loan Offer
 async function sendLoanOffer(leadData) {
   const offer = await getLoanOffer(leadData.loanType);
-  if (!offer) return;
+  if (!offer) {
+    console.error("❌ Loan offer data मिळाली नाही:", leadData.loanType);
+    return;
+  }
+
+  // Validate fields
+  const requiredFields = [
+    leadData.name,
+    leadData.loanType,
+    offer.bank_name,
+    offer.interest_rate,
+    offer.topup_status,
+    offer.process_speed,
+  ];
+  if (requiredFields.some(field => !field || field.toString().trim() === "")) {
+    console.error("❌ sendLoanOffer error: रिकामी फील्ड आहे", {
+      leadData,
+      offer,
+    });
+    return;
+  }
 
   try {
     await axios.post(
@@ -131,6 +154,7 @@ async function sendLoanOffer(leadData) {
   }
 }
 
+// ✅ Webhook Verify
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -143,6 +167,7 @@ app.get("/webhook", (req, res) => {
   }
 });
 
+// ✅ Webhook POST (Bot Logic)
 app.post("/webhook", async (req, res) => {
   const body = req.body;
   if (body.object) {
@@ -226,8 +251,7 @@ app.post("/webhook", async (req, res) => {
           loanType: state.loanType,
         });
 
-        reply =
-          "🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केलं आहे.\nआमचे प्रतिनिधी लवकरच संपर्क करतील.";
+        reply = "🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केलं आहे.\nआमचे प्रतिनिधी लवकरच संपर्क करतील.";
         delete userState[from];
       } else {
         reply = "Loan साठी क्रमांक टाका:\n1️⃣ Home Loan\n2️⃣ Personal Loan\n...";
