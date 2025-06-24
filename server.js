@@ -1,8 +1,8 @@
+// server.js
 const express = require("express");
 const axios = require("axios");
 const { google } = require("googleapis");
 const bodyParser = require("body-parser");
-
 const app = express();
 app.use(bodyParser.json());
 
@@ -24,10 +24,11 @@ const auth = new google.auth.JWT(
   SCOPES
 );
 const sheets = google.sheets({ version: "v4", auth });
+
 const userState = {};
 
 async function notifyVinayak(leadData) {
-  const message = `🔔 नवीन लोन लीड:\n\n👤 नाव: ${leadData.name}\n📞 नंबर: ${leadData.phone}\n🏠 Loan Type: ${leadData.loanType}\n💰 उत्पन्न: ${leadData.income}\n🌍 शहर: ${leadData.city}\n💸 रक्कम: ${leadData.amount}`;
+  const message = `🔔 नवीन लोन लीड:\n\n👤 नाव: ${leadData.name}\n📞 नंबर: ${leadData.phone}\n🏡 Loan Type: ${leadData.loanType}\n💰 उत्पन्न: ${leadData.income}\n🌍 शहर: ${leadData.city}\n💸 रक्कम: ${leadData.amount}`;
 
   try {
     await axios.post(
@@ -57,13 +58,12 @@ async function getLoanOffer(loanType) {
       range: `${OFFERS_TAB_NAME}!A2:E1000`,
     });
     const rows = result.data.values;
-    console.log("📊 Loan Offers fetched:", rows.length, "rows");
+    console.log(`📊 Loan Offers fetched: ${rows.length} rows`);
+    if (!rows || rows.length === 0) return null;
 
     for (let row of rows) {
-      const type = (row[0] || "").trim().toLowerCase();
-      const input = (loanType || "").trim().toLowerCase();
-      console.log("🆚 Comparing:", input, "vs", type);
-      if (type === input) {
+      console.log("🆚 Comparing:", loanType.toLowerCase(), "vs", (row[0] || "").toLowerCase());
+      if ((row[0] || "").trim().toLowerCase() === loanType.trim().toLowerCase()) {
         return {
           bank_name: row[1] || "",
           interest_rate: row[2] || "",
@@ -81,10 +81,7 @@ async function getLoanOffer(loanType) {
 
 async function sendLoanOffer(leadData) {
   const offer = await getLoanOffer(leadData.loanType);
-  if (!offer) {
-    console.log("❌ No offer found for loanType:", leadData.loanType);
-    return;
-  }
+  if (!offer) return;
 
   console.log("📦 Sending loan offer to:", leadData.phone);
   console.log("🙍‍♂️ Name:", leadData.name);
@@ -102,19 +99,24 @@ async function sendLoanOffer(leadData) {
         to: leadData.phone,
         type: "template",
         template: {
-          name: "loan_offer_generic",
+          name: "loan_offer_v2",
           language: { code: "mr" },
           components: [
             {
               type: "body",
               parameters: [
-                { type: "text", text: leadData.name || "ग्राहक" },
-                { type: "text", text: leadData.loanType || "-" },
-                { type: "text", text: offer.bank_name || "-" },
-                { type: "text", text: offer.interest_rate.toString() || "-" },
-                { type: "text", text: offer.topup_status || "-" },
-                { type: "text", text: offer.process_speed || "-" },
+                { type: "text", text: leadData.loanType },
+                { type: "text", text: offer.bank_name },
+                { type: "text", text: offer.interest_rate },
+                { type: "text", text: offer.topup_status },
+                { type: "text", text: offer.process_speed },
               ],
+            },
+            {
+              type: "button",
+              sub_type: "quick_reply",
+              index: "0",
+              parameters: [{ type: "payload", payload: "apply_now" }],
             },
           ],
         },
@@ -126,7 +128,7 @@ async function sendLoanOffer(leadData) {
         },
       }
     );
-    console.log("✅ Loan Offer पाठवला:", leadData.phone);
+    console.log("📤 loan_offer_v2 टेम्पलेट यशस्वीपणे पाठवले.");
   } catch (error) {
     console.error("❌ sendLoanOffer error:", error.response?.data || error.message);
   }
@@ -155,10 +157,11 @@ app.post("/webhook", async (req, res) => {
     if (message && message.type === "text") {
       const from = message.from;
       const msgBody = message.text.body.trim();
-      const name = value?.contacts?.[0]?.profile?.name || "ग्राहक";
+      const name = value?.contacts?.[0]?.profile?.name || "NA";
 
       if (!userState[from]) userState[from] = {};
-      userState[from + "_name"] = name;
+      if (!userState[from + "_name"]) userState[from + "_name"] = name;
+
       const state = userState[from];
       let reply = "";
 
@@ -188,8 +191,8 @@ app.post("/webhook", async (req, res) => {
         state.step = "amount";
       } else if (state.step === "amount") {
         state.amount = msgBody;
-        const dateNow = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 
+        const dateNow = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
         await sheets.spreadsheets.values.append({
           spreadsheetId: SHEET_ID,
           range: `${SHEET_TAB_NAME}!A1`,
@@ -197,7 +200,7 @@ app.post("/webhook", async (req, res) => {
           requestBody: {
             values: [
               [
-                name,
+                userState[from + "_name"],
                 from,
                 state.city,
                 state.income,
@@ -212,7 +215,7 @@ app.post("/webhook", async (req, res) => {
         });
 
         await notifyVinayak({
-          name,
+          name: userState[from + "_name"],
           phone: from,
           city: state.city,
           income: state.income,
@@ -221,7 +224,7 @@ app.post("/webhook", async (req, res) => {
         });
 
         await sendLoanOffer({
-          name,
+          name: userState[from + "_name"],
           phone: from,
           loanType: state.loanType,
         });
@@ -249,7 +252,6 @@ app.post("/webhook", async (req, res) => {
       );
       console.log("📤 Reply sent to", from + ":", reply);
     }
-
     res.sendStatus(200);
   } else {
     res.sendStatus(404);
