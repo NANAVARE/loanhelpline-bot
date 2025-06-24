@@ -1,4 +1,4 @@
-// LoanHelpline WhatsApp Bot (Updated for loan_offer_v2 template)
+// server.js
 const express = require("express");
 const axios = require("axios");
 const { google } = require("googleapis");
@@ -13,8 +13,6 @@ const SHEET_TAB_NAME = process.env.SHEET_TAB_NAME;
 const OFFERS_SHEET_ID = process.env.OFFERS_SHEET_ID;
 const OFFERS_TAB_NAME = process.env.OFFERS_TAB_NAME;
 const GOOGLE_CREDENTIALS_JSON = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
-const phoneNumberId = process.env.PHONE_NUMBER_ID;
-const vinayakNumber = "918329569608";
 
 const SCOPES = ["https://www.googleapis.com/auth/spreadsheets"];
 const auth = new google.auth.JWT(
@@ -24,7 +22,10 @@ const auth = new google.auth.JWT(
   SCOPES
 );
 const sheets = google.sheets({ version: "v4", auth });
+
 const userState = {};
+const phoneNumberId = process.env.PHONE_NUMBER_ID;
+const vinayakNumber = "918329569608";
 
 async function notifyVinayak(leadData) {
   const message = `🔔 नवीन लोन लीड:\n\n👤 नाव: ${leadData.name}\n📞 नंबर: ${leadData.phone}\n🏠 Loan Type: ${leadData.loanType}\n💰 उत्पन्न: ${leadData.income}\n🌍 शहर: ${leadData.city}\n💸 रक्कम: ${leadData.amount}`;
@@ -58,6 +59,7 @@ async function getLoanOffer(loanType) {
     });
     const rows = result.data.values;
     if (!rows || rows.length === 0) return null;
+
     for (let row of rows) {
       if ((row[0] || "").trim().toLowerCase() === loanType.trim().toLowerCase()) {
         return {
@@ -79,8 +81,6 @@ async function sendLoanOffer(leadData) {
   const offer = await getLoanOffer(leadData.loanType);
   if (!offer) return;
 
-  console.log("📊 Loan Offers fetched: 7 rows");
-  console.log("🆚 Comparing:", leadData.loanType.toLowerCase(), "vs", leadData.loanType.toLowerCase());
   console.log("📦 Sending loan offer to:", leadData.phone);
   console.log("🙍‍♂️ Name:", leadData.name);
   console.log("🏦 Loan Type:", leadData.loanType);
@@ -110,12 +110,6 @@ async function sendLoanOffer(leadData) {
                 { type: "text", text: offer.process_speed },
               ],
             },
-            {
-              type: "button",
-              sub_type: "quick_reply",
-              index: "0",
-              parameters: [{ type: "payload", payload: "apply_now" }],
-            }
           ],
         },
       },
@@ -126,7 +120,7 @@ async function sendLoanOffer(leadData) {
         },
       }
     );
-    console.log("📨 Loan offer पाठवली:", leadData.phone);
+    console.log("✅ Loan offer template पाठवले.");
   } catch (error) {
     console.error("❌ sendLoanOffer error:", error.response?.data || error.message);
   }
@@ -155,7 +149,7 @@ app.post("/webhook", async (req, res) => {
     if (message && message.type === "text") {
       const from = message.from;
       const msgBody = message.text.body.trim();
-      const name = value?.contacts?.[0]?.profile?.name || "NA";
+      const name = value?.contacts?.[0]?.profile?.name || "Loanhelpline";
 
       if (!userState[from]) userState[from] = {};
       if (!userState[from + "_name"]) userState[from + "_name"] = name;
@@ -227,7 +221,8 @@ app.post("/webhook", async (req, res) => {
           loanType: state.loanType,
         });
 
-        reply = "🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केलं आहे.\nआमचे प्रतिनिधी लवकरच संपर्क करतील.";
+        reply =
+          "🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केलं आहे.\nआमचे प्रतिनिधी लवकरच संपर्क करतील.";
         delete userState[from];
       } else {
         reply = "Loan साठी क्रमांक टाका:\n1️⃣ Home Loan\n2️⃣ Personal Loan\n...";
