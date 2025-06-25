@@ -2,29 +2,27 @@ const express = require("express");
 const axios = require("axios");
 const bodyParser = require("body-parser");
 const { google } = require("googleapis");
-require("dotenv").config();
 const app = express();
+require("dotenv").config();
+
 const PORT = process.env.PORT || 10000;
 
-const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID;
 const SHEET_NAME = process.env.SHEET_NAME;
-const OFFERS_SHEET_ID = process.env.OFFERS_SHEET_ID;
 const OFFERS_TAB_NAME = process.env.OFFERS_TAB_NAME;
-
-// Google Sheets Auth using JSON from env
-const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
-const auth = new google.auth.GoogleAuth({
-  credentials,
-  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-});
 
 app.use(bodyParser.json());
 
-const sessions = {};
+// --------- Google Sheets Setup ----------
+const auth = new google.auth.GoogleAuth({
+  credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON),
+  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+});
 
-async function appendLeadToSheet(data) {
+// ✅ Append Lead to Sheet
+async function appendLeadToSheet(leadData) {
   const client = await auth.getClient();
   const sheets = google.sheets({ version: "v4", auth: client });
 
@@ -33,40 +31,44 @@ async function appendLeadToSheet(data) {
     range: `${SHEET_NAME}!A1`,
     valueInputOption: "USER_ENTERED",
     resource: {
-      values: [[
-        new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
-        data.name,
-        data.phone,
-        data.city,
-        data.monthlyIncome,
-        data.loanType,
-        data.amount,
-        "New Lead",
-      ]],
+      values: [
+        [
+          leadData.name,
+          leadData.phone,
+          leadData.city,
+          leadData.monthlyIncome,
+          leadData.loanType,
+          leadData.amount,
+          new Date().toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
+          "New Lead",
+        ],
+      ],
     },
   });
 }
 
+// ✅ Get Loan Offer from Offer Sheet
 async function getLoanOffer(loanType) {
   const client = await auth.getClient();
   const sheets = google.sheets({ version: "v4", auth: client });
 
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: OFFERS_SHEET_ID,
-    range: OFFERS_TAB_NAME,
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: GOOGLE_SHEET_ID,
+    range: `${OFFERS_TAB_NAME}`,
   });
 
-  const rows = res.data.values;
+  const rows = response.data.values;
   const headers = rows[0];
   const typeIndex = headers.indexOf("Loan Type");
 
   for (let i = 1; i < rows.length; i++) {
-    if (rows[i][typeIndex]?.toLowerCase() === loanType.toLowerCase()) {
+    const row = rows[i];
+    if ((row[typeIndex] || "").toLowerCase() === loanType.toLowerCase()) {
       return {
-        bank_name: rows[i][headers.indexOf("Bank Name")],
-        interest_rate: rows[i][headers.indexOf("Interest Rate")],
-        topup_status: rows[i][headers.indexOf("Top-up")],
-        process_speed: rows[i][headers.indexOf("Process")],
+        bank_name: row[headers.indexOf("Bank Name")],
+        interest_rate: row[headers.indexOf("Interest Rate")],
+        topup_status: row[headers.indexOf("Top-up")],
+        process_speed: row[headers.indexOf("Process")],
       };
     }
   }
@@ -74,8 +76,9 @@ async function getLoanOffer(loanType) {
   return null;
 }
 
-async function sendLoanOffer(data) {
-  const offer = await getLoanOffer(data.loanType);
+// ✅ Send Loan Offer Template
+async function sendLoanOffer(leadData) {
+  const offer = await getLoanOffer(leadData.loanType);
   if (!offer) return;
 
   try {
@@ -83,21 +86,23 @@ async function sendLoanOffer(data) {
       `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
       {
         messaging_product: "whatsapp",
-        to: data.phone,
+        to: leadData.phone,
         type: "template",
         template: {
           name: "loan_offer_v2",
           language: { code: "mr" },
-          components: [{
-            type: "body",
-            parameters: [
-              { type: "text", text: data.loanType || "-" },
-              { type: "text", text: offer.bank_name || "-" },
-              { type: "text", text: offer.interest_rate || "-" },
-              { type: "text", text: offer.topup_status || "-" },
-              { type: "text", text: offer.process_speed || "-" },
-            ],
-          }],
+          components: [
+            {
+              type: "body",
+              parameters: [
+                { type: "text", text: leadData.loanType },
+                { type: "text", text: offer.bank_name },
+                { type: "text", text: offer.interest_rate },
+                { type: "text", text: offer.topup_status },
+                { type: "text", text: offer.process_speed },
+              ],
+            },
+          ],
         },
       },
       {
@@ -107,36 +112,13 @@ async function sendLoanOffer(data) {
         },
       }
     );
-
-    console.log("✅ Loan offer पाठवली:", data.phone);
-  } catch (err) {
-    console.error("❌ sendLoanOffer error:", err.response?.data || err.message);
+    console.log("📨 Loan offer पाठवली:", leadData.phone);
+  } catch (error) {
+    console.error("❌ sendLoanOffer error:", error.response?.data || error.message);
   }
 }
 
-async function sendMessage(to, msg) {
-  try {
-    await axios.post(
-      `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
-      {
-        messaging_product: "whatsapp",
-        to,
-        text: { body: msg },
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-    console.log("📤 Reply sent to", to + ":", msg.split("\n")[0]);
-  } catch (err) {
-    console.error("❌ sendMessage error:", err.response?.data || err.message);
-  }
-}
-
-// Webhook Verification
+// ✅ Webhook Verify
 app.get("/webhook", (req, res) => {
   const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
   const mode = req.query["hub.mode"];
@@ -151,22 +133,29 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-// Webhook POST handler
+const sessions = {};
+
+// ✅ Main Webhook
 app.post("/webhook", async (req, res) => {
   try {
-    const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-    const from = message?.from;
-    const text = message?.text?.body?.trim();
-    const name = req.body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.profile?.name || "LoanHelpline";
+    const body = req.body;
+    const msg =
+      body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0] || null;
+    if (!msg) return res.sendStatus(200);
 
-    if (!from || !text) return res.sendStatus(200);
+    const from = msg.from;
+    const text = msg.text?.body?.trim();
+    const name =
+      body.entry[0].changes[0].value.contacts?.[0]?.profile?.name || "Loanhelpline";
 
-    if (!sessions[from]) sessions[from] = { step: 0, name, phone: from };
+    if (!sessions[from]) {
+      sessions[from] = { step: 0, name, phone: from };
+    }
 
     const session = sessions[from];
 
     if (/^[1-7]$/.test(text)) {
-      const types = [
+      const loanTypes = [
         "Home Loan",
         "Personal Loan",
         "Transfer Your Loan",
@@ -175,7 +164,7 @@ app.post("/webhook", async (req, res) => {
         "Industrial Property Loan",
         "Commercial Property Loan",
       ];
-      session.loanType = types[parseInt(text) - 1];
+      session.loanType = loanTypes[parseInt(text) - 1];
       session.step = 1;
       await sendMessage(from, `✅ आपण निवडलं आहे: 🔁 ${session.loanType}\n📝 Eligibility साठी माहिती पाठवा:\n- मासिक उत्पन्न (उदा: ₹30000)`);
     } else if (session.step === 1) {
@@ -197,19 +186,41 @@ app.post("/webhook", async (req, res) => {
       await sendLoanOffer(session);
 
       await sendMessage(from, `🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केलं आहे.\nआमचे प्रतिनिधी लवकरच संपर्क करतील.`);
-
       delete sessions[from];
       console.log("🧹 Session Deleted:", from);
     } else {
-      await sendMessage(from, `1️⃣ Home Loan\n2️⃣ Personal Loan\n3️⃣ Transfer Your Loan\n4️⃣ Business Loan\n5️⃣ Mortgage Loan\n6️⃣ Industrial Property Loan\n7️⃣ Commercial Property Loan\nकृपया फक्त क्रमांक टाका. (उदा: 1)`);
+      await sendMessage(from, `1️⃣ Home Loan\n2️⃣ Personal Loan\n3️⃣ Transfer Your Loan\n4️⃣ Business Loan\n5️⃣ Mortgage Loan\n6️⃣ Industrial Property Loan\n7️⃣ Commercial Property Loan\n\nकृपया फक्त क्रमांक टाका. (उदा: 1)`);
     }
 
     res.sendStatus(200);
-  } catch (error) {
-    console.error("❌ Webhook error:", error);
+  } catch (err) {
+    console.error("❌ Webhook error:", err);
     res.sendStatus(500);
   }
 });
+
+// ✅ Send WhatsApp Message
+async function sendMessage(to, message) {
+  try {
+    await axios.post(
+      `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
+      {
+        messaging_product: "whatsapp",
+        to,
+        text: { body: message },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    console.log("📤 Reply sent to", to + ":", message.split("\n")[0]);
+  } catch (err) {
+    console.error("❌ sendMessage error:", err.response?.data || err.message);
+  }
+}
 
 app.listen(PORT, () => {
   console.log(`✅ LoanHelpline Bot चालू आहे पोर्ट ${PORT}`);
