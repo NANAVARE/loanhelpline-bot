@@ -1,4 +1,4 @@
-// server.js - Updated Version with Full Flow & Menu Fixes
+// server.js - Final Updated Version with Lead Format Fix
 import express from 'express';
 import bodyParser from 'body-parser';
 import { google } from 'googleapis';
@@ -56,7 +56,9 @@ const sendLoanOffer = async (to, loanType) => {
     });
 
     const cleanType = loanType.replace(/[^a-zA-Z ]/g, '').trim().toLowerCase();
-    const offer = res.data.values.find((row) => row[0]?.trim().toLowerCase() === cleanType);
+    const offer = res.data.values.find((row) =>
+      row[0]?.trim().toLowerCase() === cleanType
+    );
 
     if (!offer) throw new Error('Loan offer not found');
 
@@ -123,34 +125,32 @@ app.post('/webhook', async (req, res) => {
   const text = message?.text?.body;
   if (!from || !text) return res.sendStatus(200);
 
-  if (!sessions[from]) {
-    sessions[from] = { step: 0, data: { phone: from } };
-    await sendMessage(from, `LoanHelpline मध्ये स्वागत आहे 👋\n\nकृपया पर्याय निवडा:\n1️⃣ Home Loan\n2️⃣ Personal Loan\n3️⃣ Transfer Your Loan\n4️⃣ Business Loan\n5️⃣ Mortgage Loan\n6️⃣ Industrial Property Loan\n7️⃣ Commercial Property Loan\n\nकृपया फक्त क्रमांक टाका. (उदा: 1)`);
-    return res.sendStatus(200);
-  }
-
+  if (!sessions[from]) sessions[from] = { step: 0, data: { phone: from } };
   const session = sessions[from];
 
   try {
+    const loanOptions = [
+      'Home Loan',
+      'Personal Loan',
+      'Transfer Your Loan',
+      'Business Loan',
+      'Mortgage Loan',
+      'Industrial Property Loan',
+      'Commercial Property Loan'
+    ];
+
     if (session.step === 0) {
-      const menuMap = {
-        '1': 'Home Loan',
-        '2': 'Personal Loan',
-        '3': 'Transfer Your Loan',
-        '4': 'Business Loan',
-        '5': 'Mortgage Loan',
-        '6': 'Industrial Property Loan',
-        '7': 'Commercial Property Loan',
-      };
-      const loanType = menuMap[text.trim()];
-      if (!loanType) {
-        await sendMessage(from, 'कृपया वैध क्रमांक टाका (उदा: 1).');
-        return res.sendStatus(200);
+      const choice = parseInt(text.trim());
+      if (!isNaN(choice) && choice >= 1 && choice <= loanOptions.length) {
+        const loanType = loanOptions[choice - 1];
+        session.data.loanType = loanType;
+        session.step = 1;
+        await sendMessage(from, `✅ आपण निवडलं आहे: 🔁 ${loanType}`);
+        await sendMessage(from, '🌍 तुमचं शहर/गाव सांगा (उदा: Pune)');
+      } else {
+        await sendMessage(from,
+          `1️⃣ Home Loan\n2️⃣ Personal Loan\n3️⃣ Transfer Your Loan\n4️⃣ Business Loan\n5️⃣ Mortgage Loan\n6️⃣ Industrial Property Loan\n7️⃣ Commercial Property Loan\n\nकृपया फक्त क्रमांक टाका. (उदा: 1)`);
       }
-      session.step = 1;
-      session.data.loanType = loanType;
-      await sendMessage(from, `✅ आपण निवडलं आहे: 🔁 ${loanType}`);
-      await sendMessage(from, '🌍 तुमचं शहर/गाव सांगा (उदा: Pune)');
       return res.sendStatus(200);
     }
 
@@ -173,15 +173,25 @@ app.post('/webhook', async (req, res) => {
       case 4:
         session.data.name = text;
         await saveLeadToSheet({ ...session.data });
+
         await sendMessage(from, '🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केलं आहे.');
-        await sendMessage('918329569608', `🔔 नवीन लीड:\n${session.data.name} (${from})\n📍 ${session.data.city}\n💰 ₹${session.data.amount}`);
+
+        // ✅ FIXED: WhatsApp Lead Notification Format
+        const notifyMsg = `🔔 नवीन लीड:
+🙍‍♂ नाव: ${session.data.name}
+📞 मोबाईल: ${session.data.phone}
+🏦 लोन प्रकार: ${session.data.loanType}
+💰 उत्पन्न: ₹${session.data.income}
+🌍 शहर: ${session.data.city}
+📋 लोन रक्कम: ₹${session.data.amount}`;
+
+        await sendMessage('918329569608', notifyMsg);
         await sendLoanOffer(from, session.data.loanType);
         delete sessions[from];
         console.log('🧹 Session Deleted:', from);
         break;
       default:
-        await sendMessage(from, 'कृपया वैध पर्याय निवडा. सुरुवात करण्यासाठी 1 पाठवा.');
-        break;
+        await sendMessage(from, `1️⃣ Home Loan\n2️⃣ Personal Loan\n3️⃣ Transfer Your Loan\n4️⃣ Business Loan\n5️⃣ Mortgage Loan\n6️⃣ Industrial Property Loan\n7️⃣ Commercial Property Loan\n\nकृपया फक्त क्रमांक टाका. (उदा: 1)`);
     }
   } catch (e) {
     console.error('❌ Webhook error:', e);
