@@ -1,92 +1,69 @@
 const express = require("express");
-const axios = require("axios");
 const bodyParser = require("body-parser");
+const axios = require("axios");
 const { google } = require("googleapis");
-const app = express();
 require("dotenv").config();
 
-const PORT = process.env.PORT || 10000;
-
-const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
-const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID;
-const SHEET_NAME = process.env.SHEET_NAME;
-const OFFERS_TAB_NAME = process.env.OFFERS_TAB_NAME;
-
+const app = express();
 app.use(bodyParser.json());
 
-// --------- Google Sheets Setup ----------
+const PORT = process.env.PORT || 10000;
+const sessions = {};
+
 const auth = new google.auth.GoogleAuth({
   credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON),
   scopes: ["https://www.googleapis.com/auth/spreadsheets"],
 });
 
-// ✅ Append Lead to Sheet
-async function appendLeadToSheet(leadData) {
-  const client = await auth.getClient();
-  const sheets = google.sheets({ version: "v4", auth: client });
-
+async function appendLeadToSheet(lead) {
+  const sheets = google.sheets({ version: "v4", auth });
+  const values = [[
+    lead.name,
+    lead.phone,
+    lead.city,
+    lead.income,
+    lead.loanType,
+    lead.amount,
+    new Date().toLocaleDateString("en-GB"),
+    "New Lead"
+  ]];
   await sheets.spreadsheets.values.append({
-    spreadsheetId: GOOGLE_SHEET_ID,
-    range: `${SHEET_NAME}!A1`,
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: `${process.env.SHEET_NAME}!A1`,
     valueInputOption: "USER_ENTERED",
-    resource: {
-      values: [
-        [
-          leadData.name,
-          leadData.phone,
-          leadData.city,
-          leadData.monthlyIncome,
-          leadData.loanType,
-          leadData.amount,
-          new Date().toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }),
-          "New Lead",
-        ],
-      ],
-    },
+    requestBody: { values },
   });
 }
 
-// ✅ Get Loan Offer from Offer Sheet
 async function getLoanOffer(loanType) {
-  const client = await auth.getClient();
-  const sheets = google.sheets({ version: "v4", auth: client });
-
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: GOOGLE_SHEET_ID,
-    range: `${OFFERS_TAB_NAME}`,
+  const sheets = google.sheets({ version: "v4", auth });
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: `${process.env.OFFERS_TAB_NAME}!A2:E`,
   });
 
-  const rows = response.data.values;
-  const headers = rows[0];
-  const typeIndex = headers.indexOf("Loan Type");
-
-  for (let i = 1; i < rows.length; i++) {
-    const row = rows[i];
-    if ((row[typeIndex] || "").toLowerCase() === loanType.toLowerCase()) {
-      return {
-        bank_name: row[headers.indexOf("Bank Name")],
-        interest_rate: row[headers.indexOf("Interest Rate")],
-        topup_status: row[headers.indexOf("Top-up")],
-        process_speed: row[headers.indexOf("Process")],
-      };
-    }
-  }
-
-  return null;
+  const rows = res.data.values;
+  if (!rows) return null;
+  const match = rows.find((row) => row[0].toLowerCase().includes(loanType.toLowerCase()));
+  if (!match) return null;
+  return {
+    bankName: match[1],
+    interestRate: match[2],
+    topUp: match[3],
+    process: match[4],
+  };
 }
 
-// ✅ Send Loan Offer Template
-async function sendLoanOffer(leadData) {
-  const offer = await getLoanOffer(leadData.loanType);
-  if (!offer) return;
+async function sendLoanOffer(lead) {
+  const offer = await getLoanOffer(lead.loanType);
+  if (!offer) return console.error("❌ Loan offer not found");
 
   try {
     await axios.post(
-      `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
+      `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
       {
         messaging_product: "whatsapp",
-        to: leadData.phone,
+        to: lead.phone,
         type: "template",
         template: {
           name: "loan_offer_v2",
@@ -95,11 +72,11 @@ async function sendLoanOffer(leadData) {
             {
               type: "body",
               parameters: [
-                { type: "text", text: leadData.loanType },
-                { type: "text", text: offer.bank_name },
-                { type: "text", text: offer.interest_rate },
-                { type: "text", text: offer.topup_status },
-                { type: "text", text: offer.process_speed },
+                { type: "text", text: lead.loanType || "Loan" },
+                { type: "text", text: offer.bankName || "-" },
+                { type: "text", text: offer.interestRate || "-" },
+                { type: "text", text: offer.topUp || "-" },
+                { type: "text", text: offer.process || "-" },
               ],
             },
           ],
@@ -107,25 +84,21 @@ async function sendLoanOffer(leadData) {
       },
       {
         headers: {
-          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
         },
       }
     );
-    console.log("📨 Loan offer पाठवली:", leadData.phone);
   } catch (error) {
     console.error("❌ sendLoanOffer error:", error.response?.data || error.message);
   }
 }
 
-// ✅ Webhook Verify
 app.get("/webhook", (req, res) => {
-  const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
-  if (mode && token === VERIFY_TOKEN) {
+  if (mode && token === process.env.VERIFY_TOKEN) {
     console.log("✅ Webhook verified");
     res.status(200).send(challenge);
   } else {
@@ -133,94 +106,76 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-const sessions = {};
-
-// ✅ Main Webhook
 app.post("/webhook", async (req, res) => {
-  try {
-    const body = req.body;
-    const msg =
-      body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0] || null;
-    if (!msg) return res.sendStatus(200);
+  const entry = req.body.entry?.[0];
+  const changes = entry?.changes?.[0]?.value?.messages?.[0];
+  if (!changes) return res.sendStatus(200);
 
-    const from = msg.from;
-    const text = msg.text?.body?.trim();
-    const name =
-      body.entry[0].changes[0].value.contacts?.[0]?.profile?.name || "Loanhelpline";
+  const from = changes.from;
+  const msg = changes.text?.body;
+  if (!sessions[from]) sessions[from] = { step: 0 };
+  const session = sessions[from];
 
-    if (!sessions[from]) {
-      sessions[from] = { step: 0, name, phone: from };
-    }
+  let reply;
+  if (msg === "1") {
+    session.loanType = "Home Loan";
+    reply = "✅ आपण निवडलं आहे: 🔁 Home Loan\n🌍 तुमचं शहर/गाव सांगा (उदा: Pune)";
+    session.step = 1;
+  } else if (session.step === 1) {
+    session.city = msg;
+    reply = "💰 तुम्हाला किती लोन हवा आहे? (उदा: ₹15 लाख)";
+    session.step = 2;
+  } else if (session.step === 2) {
+    session.amount = msg;
+    const lead = {
+      name: "LoanHelpline",
+      phone: from,
+      city: session.city,
+      income: "-",
+      loanType: session.loanType,
+      amount: session.amount,
+    };
+    await appendLeadToSheet(lead);
 
-    const session = sessions[from];
-
-    if (/^[1-7]$/.test(text)) {
-      const loanTypes = [
-        "Home Loan",
-        "Personal Loan",
-        "Transfer Your Loan",
-        "Business Loan",
-        "Mortgage Loan",
-        "Industrial Property Loan",
-        "Commercial Property Loan",
-      ];
-      session.loanType = loanTypes[parseInt(text) - 1];
-      session.step = 1;
-      await sendMessage(from, `✅ आपण निवडलं आहे: 🔁 ${session.loanType}\n📝 Eligibility साठी माहिती पाठवा:\n- मासिक उत्पन्न (उदा: ₹30000)`);
-    } else if (session.step === 1) {
-      session.monthlyIncome = text;
-      session.step = 2;
-      await sendMessage(from, `🌍 तुमचं शहर/गाव सांगा (उदा: Pune)`);
-    } else if (session.step === 2) {
-      session.city = text;
-      session.step = 3;
-      await sendMessage(from, `💰 तुम्हाला किती लोन हवा आहे? (उदा: ₹15 लाख)`);
-    } else if (session.step === 3) {
-      session.amount = text;
-      session.step = 4;
-
-      await sendMessage("918329569608", `🔔 नवीन लीड:\n\n🙍‍♂️ नाव: ${session.name}\n📞 मोबाईल: ${session.phone}\n🏦 ${session.loanType}\n💰 ${session.monthlyIncome}\n🌍 ${session.city}\n₹ ${session.amount}`);
-      console.log("📨 Vinayak ला लीड नोटिफिकेशन पाठवले.");
-
-      await appendLeadToSheet(session);
-      await sendLoanOffer(session);
-
-      await sendMessage(from, `🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केलं आहे.\nआमचे प्रतिनिधी लवकरच संपर्क करतील.`);
-      delete sessions[from];
-      console.log("🧹 Session Deleted:", from);
-    } else {
-      await sendMessage(from, `1️⃣ Home Loan\n2️⃣ Personal Loan\n3️⃣ Transfer Your Loan\n4️⃣ Business Loan\n5️⃣ Mortgage Loan\n6️⃣ Industrial Property Loan\n7️⃣ Commercial Property Loan\n\nकृपया फक्त क्रमांक टाका. (उदा: 1)`);
-    }
-
-    res.sendStatus(200);
-  } catch (err) {
-    console.error("❌ Webhook error:", err);
-    res.sendStatus(500);
-  }
-});
-
-// ✅ Send WhatsApp Message
-async function sendMessage(to, message) {
-  try {
+    // Notify admin
     await axios.post(
-      `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
+      `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
       {
         messaging_product: "whatsapp",
-        to,
-        text: { body: message },
+        to: "918329569608",
+        type: "text",
+        text: { body: `🔔 नवीन लीड:\n${lead.name} (${lead.phone})` },
       },
       {
         headers: {
-          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
         },
       }
     );
-    console.log("📤 Reply sent to", to + ":", message.split("\n")[0]);
-  } catch (err) {
-    console.error("❌ sendMessage error:", err.response?.data || err.message);
+
+    await sendLoanOffer(lead);
+    reply = "🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केलं आहे.";
+    delete sessions[from];
+  } else {
+    reply = "1️⃣ Home Loan\nकृपया पर्याय निवडा.";
   }
-}
+
+  await axios.post(
+    `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+    {
+      messaging_product: "whatsapp",
+      to: from,
+      text: { body: reply },
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+      },
+    }
+  );
+
+  res.sendStatus(200);
+});
 
 app.listen(PORT, () => {
   console.log(`✅ LoanHelpline Bot चालू आहे पोर्ट ${PORT}`);
