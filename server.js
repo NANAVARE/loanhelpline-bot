@@ -1,4 +1,4 @@
-// server.js - Final Updated Version with Lead Format Fix
+// server.js - Final Updated Version with Multi-Tab Loan Offers Support
 import express from 'express';
 import bodyParser from 'body-parser';
 import { google } from 'googleapis';
@@ -21,10 +21,19 @@ const sheets = google.sheets({ version: 'v4', auth });
 
 const SHEET_ID = process.env.GOOGLE_SHEET_ID;
 const SHEET_NAME = process.env.SHEET_NAME;
-const OFFERS_TAB_NAME = process.env.OFFERS_TAB_NAME;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+
+const tabMapping = {
+  'Home Loan': 'Home Loan Offers',
+  'Personal Loan': 'Personal Loan Offers',
+  'Transfer Your Loan': 'Balance Transfer Offers',
+  'Business Loan': 'Business Loan Offers',
+  'Mortgage Loan': 'Mortgage Loan Offers',
+  'Industrial Property Loan': 'Industrial Property Offers',
+  'Commercial Property Loan': 'Commercial Property Offers'
+};
 
 const sendMessage = async (to, message) => {
   try {
@@ -50,20 +59,21 @@ const sendMessage = async (to, message) => {
 
 const sendLoanOffer = async (to, loanType) => {
   try {
+    const sheetTab = tabMapping[loanType] || 'Home Loan Offers';
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `${OFFERS_TAB_NAME}!A2:E`,
+      range: `${sheetTab}!A2:E`,
     });
 
-    const cleanType = loanType.replace(/[^a-zA-Z ]/g, '').trim().toLowerCase();
-    const offer = res.data.values.find((row) =>
-      row[0]?.trim().toLowerCase() === cleanType
-    );
+    const offers = res.data.values?.filter((row) => row[0]?.toLowerCase().includes(loanType.toLowerCase()));
 
-    if (!offer) throw new Error('Loan offer not found');
+    if (!offers || offers.length === 0) {
+      return await sendMessage(to, `क्षमस्व, सध्या ${loanType} साठी कोणतीही ऑफर उपलब्ध नाही.`);
+    }
 
-    const [type, bank, rate, topup, process] = offer;
-    const message = `🔹 LoanHelpline कडून नवीन ऑफर:
+    for (const offer of offers) {
+      const [type, bank, rate, topup, process] = offer;
+      const message = `🔹 LoanHelpline कडून नवीन ऑफर:
 ${type}
 🏦 बँक: ${bank}
 💰 व्याजदर: ${rate}% पासून
@@ -72,7 +82,8 @@ ${type}
 
 LoanHelpline सेवेसाठी धन्यवाद!`;
 
-    await sendMessage(to, message);
+      await sendMessage(to, message);
+    }
   } catch (error) {
     console.error('❌ sendLoanOffer error:', error.response?.data || error.message);
   }
@@ -176,7 +187,6 @@ app.post('/webhook', async (req, res) => {
 
         await sendMessage(from, '🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केलं आहे.');
 
-        // ✅ FIXED: WhatsApp Lead Notification Format
         const notifyMsg = `🔔 नवीन लीड:
 🙍‍♂ नाव: ${session.data.name}
 📞 मोबाईल: ${session.data.phone}
