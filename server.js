@@ -1,4 +1,4 @@
-// server.js (Updated with Broadcast Logic + Auto Offer to User)
+// server.js (Updated with env-based Google Auth)
 const express = require('express');
 const axios = require('axios');
 const { google } = require('googleapis');
@@ -12,15 +12,17 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // =================== CONFIG ===================
-const SHEET_ID = '1SASOVVvP4zVdqvaBUBjqkjeMcrmgU_dYmlfuWKvX2yU';
+const SHEET_ID = process.env.GOOGLE_SHEET_ID;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
-const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
+const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 
 // ============= Google Sheets Auth =============
-const auth = new google.auth.GoogleAuth({
-  credentials: require('./credentials.json'),
-  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-});
+const auth = new google.auth.JWT(
+  process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+  null,
+  process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+  ['https://www.googleapis.com/auth/spreadsheets']
+);
 const sheets = google.sheets({ version: 'v4', auth });
 
 // ================= ROUTES =====================
@@ -82,74 +84,6 @@ app.post('/broadcast', async (req, res) => {
     res.status(500).send('Internal Server Error');
   }
 });
-
-// Auto Send Offers to WhatsApp User Based on Loan Type
-app.post('/sendUserOffer', async (req, res) => {
-  try {
-    const { phone, loanType } = req.body;
-
-    if (!phone || !loanType) return res.status(400).send("Missing data");
-
-    const sheetName = getSheetNameFromLoanType(loanType);
-
-    const resSheet = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: `${sheetName}!A2:F`,
-    });
-
-    const offers = resSheet.data.values;
-
-    for (const offer of offers) {
-      const [bank, rate, amount, tenure, topup, features] = offer;
-
-      await axios.post(`https://graph.facebook.com/v18.0/${PHONE_NUMBER_ID}/messages`, {
-        messaging_product: "whatsapp",
-        to: phone,
-        type: "template",
-        template: {
-          name: "loan_offer_template_marathi",
-          language: { code: "mr" },
-          components: [{
-            type: "body",
-            parameters: [
-              { type: "text", text: bank },
-              { type: "text", text: rate },
-              { type: "text", text: amount },
-              { type: "text", text: tenure },
-              { type: "text", text: topup },
-              { type: "text", text: features }
-            ]
-          }]
-        }
-      }, {
-        headers: {
-          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          'Content-Type': 'application/json',
-        }
-      });
-
-      console.log(`✅ Offer sent to ${phone} for ${bank}`);
-    }
-
-    res.send("Loan Offers sent to user");
-  } catch (err) {
-    console.error("❌ Error sending offers:", err.message);
-    res.status(500).send("Failed to send offers");
-  }
-});
-
-function getSheetNameFromLoanType(loanType) {
-  const map = {
-    "Home Loan": "Home Loan Offers",
-    "Transfer Your Loan": "Transfer Loan Offers",
-    "Personal Loan": "Personal Loan Offers",
-    "Business Loan": "Business Loan Offers",
-    "Mortgage Loan": "Mortgage Loan Offers",
-    "Industrial Property Loan": "Industrial Loan Offers",
-    "Commercial Property Loan": "Commercial Loan Offers",
-  };
-  return map[loanType.trim()] || "Home Loan Offers";
-}
 
 // ==============================================
 
