@@ -18,6 +18,6 @@
     "googleapis": "^133.0.0",
     "moment": "^2.29.4",
     "node-cron": "^3.0.3",
-    "whatsapp-cloud-api": "^1.5.2"
+    "whatsapp-cloud-api": "^1.3.7"
   }
 }
