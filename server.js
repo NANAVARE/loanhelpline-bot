@@ -21,7 +21,8 @@ const auth = new google.auth.JWT(
 const sheets = google.sheets({ version: "v4", auth });
 
 const userState = {};
-const phoneNumberId = "692637547265133";
+
+const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
 const vinayakNumber = "918329569608";
 
 async function notifyVinayak(leadData) {
@@ -49,10 +50,21 @@ async function notifyVinayak(leadData) {
 }
 
 async function getLoanOffer(loanType) {
+  const sheetTabNames = {
+    "Home Loan": "Home Loan Offers",
+    "Transfer Your Loan": "Transfer Loan Offers",
+    "Personal Loan": "Personal Loan Offers",
+    "Business Loan": "Business Loan Offers",
+    "Mortgage Loan": "Mortgage Loan Offers",
+    "Industrial Property Loan": "Industrial Loan Offers",
+    "Commercial Property Loan": "Commercial Loan Offers",
+  };
+  const sheetTab = sheetTabNames[loanType] || "Loan Offers";
+
   try {
     const result = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `${loanType}!A2:F`,
+      range: `${sheetTab}!A2:F`,
     });
     const rows = result.data.values;
     if (!rows || rows.length === 0) return null;
@@ -165,11 +177,8 @@ app.post("/webhook", async (req, res) => {
         reply = "😇 नाव सांगा (उदा: Rahul Patil)";
         state.step = "name";
       } else if (state.step === "name") {
-        userState[from + "_name"] = msgBody;
-
         const dateNow = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 
-        // ✅ Save lead to Google Sheet with correct order
         await sheets.spreadsheets.values.append({
           spreadsheetId: SHEET_ID,
           range: `${SHEET_NAME}!A1`,
@@ -177,23 +186,22 @@ app.post("/webhook", async (req, res) => {
           requestBody: {
             values: [
               [
-                dateNow,                              // Timestamp
-                userState[from + "_name"],            // Name
-                from,                                 // Phone
-                state.city,                           // City
-                state.income,                         // Income
-                state.loanType,                       // Loan Type
-                state.amount,                         // Loan Amount
-                dateNow,                              // Follow-up Date
-                "New"                                 // Status
+                dateNow,
+                msgBody,
+                from,
+                state.city,
+                state.income,
+                state.loanType,
+                state.amount,
+                dateNow,
+                "New",
               ],
             ],
           },
         });
 
-        // ✅ Notify Vinayak
         await notifyVinayak({
-          name: userState[from + "_name"],
+          name: msgBody,
           phone: from,
           city: state.city,
           income: state.income,
@@ -201,14 +209,13 @@ app.post("/webhook", async (req, res) => {
           amount: state.amount,
         });
 
-        // ✅ Send offer to user
         await sendLoanOffer({
-          name: userState[from + "_name"],
+          name: msgBody,
           phone: from,
           loanType: state.loanType,
         });
 
-        reply = "🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केला आहे.\nआमचे प्रतिनिधि लवकरच संपर्क करतील.";
+        reply = "🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केला आहे.\nआमचे प्रतिनिधी लवकरच संपर्क करतील.";
         delete userState[from];
       } else {
         reply = "Loan साठी क्रमांक टाका:\n1️⃣ Home Loan\n2️⃣ Personal Loan\n...";
