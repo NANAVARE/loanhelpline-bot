@@ -1,4 +1,3 @@
-// server.js
 const express = require("express");
 const axios = require("axios");
 const { google } = require("googleapis");
@@ -22,29 +21,11 @@ const auth = new google.auth.JWT(
 const sheets = google.sheets({ version: "v4", auth });
 
 const userState = {};
-
 const phoneNumberId = "692637547265133";
 const vinayakNumber = "918329569608";
 
-const sheetTabMap = {
-  "Home Loan": "Home Loan Offers",
-  "Personal Loan": "Personal Loan Offers",
-  "Transfer Your Loan": "Transfer Loan Offers",
-  "Business Loan": "Business Loan Offers",
-  "Mortgage Loan": "Mortgage Loan Offers",
-  "Industrial Property Loan": "Industrial Loan Offers",
-  "Commercial Property Loan": "Commercial Loan Offers",
-};
-
 async function notifyVinayak(leadData) {
-  const message = `🔔 नवीन लोन लीड:
-
-👤 नाव: ${leadData.name}
-📞 नंक: ${leadData.phone}
-🏠 Loan Type: ${leadData.loanType}
-💰 उत्पन्न: ${leadData.income}
-🌍 शहर: ${leadData.city}
-💸 रक्कम: ${leadData.amount}`;
+  const message = `🔔 नवीन लोन लीड:\n\n👤 नाव: ${leadData.name}\n📞 नंबर: ${leadData.phone}\n🏠 Loan Type: ${leadData.loanType}\n💰 उत्पन्न: ${leadData.income}\n🌍 शहर: ${leadData.city}\n💸 रक्कम: ${leadData.amount}`;
 
   try {
     await axios.post(
@@ -69,10 +50,9 @@ async function notifyVinayak(leadData) {
 
 async function getLoanOffer(loanType) {
   try {
-    const tabName = sheetTabMap[loanType];
     const result = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `${tabName}!A2:F`,
+      range: `${loanType}!A2:F`,
     });
     const rows = result.data.values;
     if (!rows || rows.length === 0) return null;
@@ -189,6 +169,7 @@ app.post("/webhook", async (req, res) => {
 
         const dateNow = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 
+        // ✅ Save lead to Google Sheet with correct order
         await sheets.spreadsheets.values.append({
           spreadsheetId: SHEET_ID,
           range: `${SHEET_NAME}!A1`,
@@ -196,20 +177,21 @@ app.post("/webhook", async (req, res) => {
           requestBody: {
             values: [
               [
-                userState[from + "_name"],
-                from,
-                state.city,
-                state.income,
-                state.loanType,
-                state.amount,
-                dateNow,
-                "New",
-                "",
+                dateNow,                              // Timestamp
+                userState[from + "_name"],            // Name
+                from,                                 // Phone
+                state.city,                           // City
+                state.income,                         // Income
+                state.loanType,                       // Loan Type
+                state.amount,                         // Loan Amount
+                dateNow,                              // Follow-up Date
+                "New"                                 // Status
               ],
             ],
           },
         });
 
+        // ✅ Notify Vinayak
         await notifyVinayak({
           name: userState[from + "_name"],
           phone: from,
@@ -219,17 +201,17 @@ app.post("/webhook", async (req, res) => {
           amount: state.amount,
         });
 
+        // ✅ Send offer to user
         await sendLoanOffer({
           name: userState[from + "_name"],
           phone: from,
           loanType: state.loanType,
         });
 
-        reply =
-          "🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केला आहे.\nआमचे प्रतिनिधि लवकरच संपर्क करतील.";
+        reply = "🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केला आहे.\nआमचे प्रतिनिधि लवकरच संपर्क करतील.";
         delete userState[from];
       } else {
-        reply = "Loan साठी क्रमंक टाका:\n1️⃣ Home Loan\n2️⃣ Personal Loan\n...";
+        reply = "Loan साठी क्रमांक टाका:\n1️⃣ Home Loan\n2️⃣ Personal Loan\n...";
         state.step = "loanType";
       }
 
