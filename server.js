@@ -54,22 +54,11 @@ async function getLoanOffer(loanType) {
   try {
     const result = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: "Loan Offers!A2:E1000",
+      range: `${loanType}!A2:F`,
     });
     const rows = result.data.values;
     if (!rows || rows.length === 0) return null;
-
-    for (let row of rows) {
-      if ((row[0] || "").trim().toLowerCase() === loanType.trim().toLowerCase()) {
-        return {
-          bank_name: row[1] || "",
-          interest_rate: row[2] || "",
-          topup_status: row[3] || "",
-          process_speed: row[4] || "",
-        };
-      }
-    }
-    return null;
+    return rows[0];
   } catch (error) {
     console.error("❌ getLoanOffer error:", error.message);
     return null;
@@ -88,31 +77,19 @@ async function sendLoanOffer(leadData) {
         to: leadData.phone,
         type: "template",
         template: {
-          name: "loan_offer_generic",
+          name: "loan_offer_template_marathi",
           language: { code: "mr" },
           components: [
             {
               type: "body",
               parameters: [
-                { type: "text", text: leadData.name },
-                { type: "text", text: leadData.loanType },
-                { type: "text", text: offer.bank_name },
-                { type: "text", text: offer.interest_rate },
-                { type: "text", text: offer.topup_status },
-                { type: "text", text: offer.process_speed },
+                { type: "text", text: offer[0] },
+                { type: "text", text: offer[1] },
+                { type: "text", text: offer[2] },
+                { type: "text", text: offer[3] },
+                { type: "text", text: offer[4] },
+                { type: "text", text: offer[5] || "" },
               ],
-            },
-            {
-              type: "button",
-              sub_type: "quick_reply",
-              index: "0",
-              parameters: [{ type: "payload", payload: "apply_now" }],
-            },
-            {
-              type: "button",
-              sub_type: "quick_reply",
-              index: "1",
-              parameters: [{ type: "payload", payload: "call_back" }],
             },
           ],
         },
@@ -252,6 +229,60 @@ app.post("/webhook", async (req, res) => {
     res.sendStatus(200);
   } else {
     res.sendStatus(404);
+  }
+});
+
+// Broadcast endpoint
+app.post("/broadcast", async (req, res) => {
+  const { loanType, bankName, recipients } = req.body;
+
+  try {
+    const resSheet = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${loanType}!A2:F`,
+    });
+
+    const rows = resSheet.data.values;
+    const offer = rows.find((row) => row[0].toLowerCase() === bankName.toLowerCase());
+
+    if (!offer) return res.status(404).send("Offer not found");
+
+    const [bank, rate, fee, topup, validTill, notes] = offer;
+
+    for (const phone of recipients) {
+      await axios.post(`https://graph.facebook.com/v18.0/${phoneNumberId}/messages`, {
+        messaging_product: "whatsapp",
+        to: phone,
+        type: "template",
+        template: {
+          name: "loan_offer_template_marathi",
+          language: { code: "mr" },
+          components: [
+            {
+              type: "body",
+              parameters: [
+                { type: "text", text: bank },
+                { type: "text", text: rate },
+                { type: "text", text: fee },
+                { type: "text", text: topup },
+                { type: "text", text: validTill },
+                { type: "text", text: notes },
+              ],
+            },
+          ],
+        },
+      }, {
+        headers: {
+          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+      });
+    }
+
+    res.send("Broadcast completed successfully");
+  } catch (err) {
+    console.error("❌ Broadcast error:", err.message);
+    res.status(500).send("Internal Server Error");
   }
 });
 
