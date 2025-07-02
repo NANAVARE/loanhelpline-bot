@@ -2,9 +2,11 @@ const express = require("express");
 const axios = require("axios");
 const { google } = require("googleapis");
 const bodyParser = require("body-parser");
+const cors = require("cors");
 const app = express();
 
 app.use(bodyParser.json());
+app.use(cors());
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
@@ -25,97 +27,18 @@ const userState = {};
 const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
 const vinayakNumber = "918329569608";
 
-async function notifyVinayak(leadData) {
-  const message = `🔔 नवीन लोन लीड:\n\n👤 नाव: ${leadData.name}\n📞 नंबर: ${leadData.phone}\n🏠 Loan Type: ${leadData.loanType}\n💰 उत्पन्न: ${leadData.income}\n🌍 शहर: ${leadData.city}\n💸 रक्कम: ${leadData.amount}`;
-  try {
-    await axios.post(
-      `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
-      {
-        messaging_product: "whatsapp",
-        to: vinayakNumber,
-        text: { body: message },
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-    console.log("📨 Vinayak ला लीड नोटिफिकेशन पाठवले.");
-  } catch (err) {
-    console.error("❌ Vinayak ला मेसेज पाठवताना त्रुटी:", err.response?.data || err.message);
-  }
-}
+// 🧠 Bank Sheet Mapping
+const sheetTabs = {
+  "Home Loan": "Home Loan Offers",
+  "Transfer Your Loan": "Transfer Loan Offers",
+  "Personal Loan": "Personal Loan Offers",
+  "Business Loan": "Business Loan Offers",
+  "Mortgage Loan": "Mortgage Loan Offers",
+  "Industrial Property Loan": "Industrial Loan Offers",
+  "Commercial Property Loan": "Commercial Loan Offers",
+};
 
-async function getLoanOffer(loanType) {
-  const sheetTabNames = {
-    "Home Loan": "Home Loan Offers",
-    "Transfer Your Loan": "Transfer Loan Offers",
-    "Personal Loan": "Personal Loan Offers",
-    "Business Loan": "Business Loan Offers",
-    "Mortgage Loan": "Mortgage Loan Offers",
-    "Industrial Property Loan": "Industrial Loan Offers",
-    "Commercial Property Loan": "Commercial Loan Offers",
-  };
-  const sheetTab = sheetTabNames[loanType] || "Loan Offers";
-
-  try {
-    const result = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: `${sheetTab}!A2:F`,
-    });
-    const rows = result.data.values;
-    if (!rows || rows.length === 0) return null;
-    return rows[0];
-  } catch (error) {
-    console.error("❌ getLoanOffer error:", error.message);
-    return null;
-  }
-}
-
-async function sendLoanOffer(leadData) {
-  const offer = await getLoanOffer(leadData.loanType);
-  if (!offer) return;
-
-  try {
-    await axios.post(
-      `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
-      {
-        messaging_product: "whatsapp",
-        to: leadData.phone,
-        type: "template",
-        template: {
-          name: "loan_offer_template_marathi",
-          language: { code: "mr" },
-          components: [
-            {
-              type: "body",
-              parameters: [
-                { type: "text", text: offer[0] },
-                { type: "text", text: offer[1] },
-                { type: "text", text: offer[2] },
-                { type: "text", text: offer[3] },
-                { type: "text", text: offer[4] },
-                { type: "text", text: offer[5] || "" },
-              ],
-            },
-          ],
-        },
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-    console.log("📨 Auto Loan Offer पाठवली:", leadData.phone);
-  } catch (error) {
-    console.error("❌ sendLoanOffer error:", error.response?.data || error.message);
-  }
-}
-
+// ✅ Webhook verification
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -128,6 +51,7 @@ app.get("/webhook", (req, res) => {
   }
 });
 
+// 📩 WhatsApp Message Handler
 app.post("/webhook", async (req, res) => {
   const body = req.body;
   if (body.object) {
@@ -243,57 +167,140 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// ✅ API for React UI
+// ✅ Vinayak ला WhatsApp वर लीड नोटिफाय करणे
+async function notifyVinayak(leadData) {
+  const message = `🔔 नवीन लोन लीड:\n\n👤 नाव: ${leadData.name}\n📞 नंबर: ${leadData.phone}\n🏠 Loan Type: ${leadData.loanType}\n💰 उत्पन्न: ${leadData.income}\n🌍 शहर: ${leadData.city}\n💸 रक्कम: ${leadData.amount}`;
+  try {
+    await axios.post(
+      `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
+      {
+        messaging_product: "whatsapp",
+        to: vinayakNumber,
+        text: { body: message },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    console.log("📨 Vinayak ला लीड नोटिफिकेशन पाठवले.");
+  } catch (err) {
+    console.error("❌ Vinayak ला मेसेज पाठवताना त्रुटी:", err.response?.data || err.message);
+  }
+}
 
+// ✅ Template Message पाठवणे
+async function sendLoanOffer(leadData) {
+  const tab = sheetTabs[leadData.loanType];
+  if (!tab) return;
+
+  const result = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${tab}!A2:G2`,
+  });
+  const offer = result.data.values?.[0];
+  if (!offer) return;
+
+  await axios.post(
+    `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
+    {
+      messaging_product: "whatsapp",
+      to: leadData.phone,
+      type: "template",
+      template: {
+        name: "loan_offer_template_marathi",
+        language: { code: "mr" },
+        components: [
+          {
+            type: "body",
+            parameters: offer.map((text) => ({ type: "text", text: text || "-" })),
+          },
+        ],
+      },
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+  console.log("📨 Loan Offer पाठवली:", leadData.phone);
+}
+
+//
+// ✅ ✅ ✅ NEW: API Endpoints for Broadcast UI
+//
+
+// 📌 GET /api/loan-types
 app.get("/api/loan-types", (req, res) => {
-  const loanTypes = [
-    "Home Loan",
-    "Personal Loan",
-    "Transfer Your Loan",
-    "Business Loan",
-    "Mortgage Loan",
-    "Industrial Property Loan",
-    "Commercial Property Loan",
-  ];
-  res.json(loanTypes);
+  res.json(Object.keys(sheetTabs));
 });
 
+// 📌 GET /api/banks?type=Home Loan
 app.get("/api/banks", async (req, res) => {
-  const loanType = req.query.type;
-  const tabMapping = {
-    "Home Loan": "Home Loan Offers",
-    "Personal Loan": "Personal Loan Offers",
-    "Transfer Your Loan": "Transfer Loan Offers",
-    "Business Loan": "Business Loan Offers",
-    "Mortgage Loan": "Mortgage Loan Offers",
-    "Industrial Property Loan": "Industrial Loan Offers",
-    "Commercial Property Loan": "Commercial Loan Offers",
-  };
-  const tabName = tabMapping[loanType];
-  if (!tabName) return res.status(400).json({ error: "Invalid loan type" });
+  const type = req.query.type;
+  const tab = sheetTabs[type];
+  if (!tab) return res.status(400).json({ error: "Invalid loan type" });
+
+  const result = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${tab}!A2:A`,
+  });
+  const banks = result.data.values?.map((row) => row[0]).filter(Boolean);
+  res.json(banks || []);
+});
+
+// 📌 POST /api/send-offer
+app.post("/api/send-offer", async (req, res) => {
+  const { phone, loanType, bankName } = req.body;
+  const tab = sheetTabs[loanType];
+  if (!tab) return res.status(400).json({ error: "Invalid loan type" });
+
+  const result = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${tab}!A2:G`,
+  });
+  const rows = result.data.values;
+  const row = rows.find((r) => r[0] === bankName);
+  if (!row) return res.status(404).json({ error: "Bank not found" });
 
   try {
-    const result = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: `${tabName}!A1:Z`,
-    });
-    const rows = result.data.values;
-    if (!rows || rows.length < 2) return res.json([]);
-    const headers = rows[0];
-    const offers = rows.slice(1).map((row) => {
-      const obj = {};
-      headers.forEach((h, i) => {
-        obj[h] = row[i] || "";
-      });
-      return obj;
-    });
-    res.json(offers);
+    await axios.post(
+      `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
+      {
+        messaging_product: "whatsapp",
+        to: phone,
+        type: "template",
+        template: {
+          name: "loan_offer_template_marathi",
+          language: { code: "mr" },
+          components: [
+            {
+              type: "body",
+              parameters: row.map((cell) => ({ type: "text", text: cell || "-" })),
+            },
+          ],
+        },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    console.log("✅ Broadcasted loan offer to:", phone);
+    res.json({ success: true });
   } catch (err) {
-    console.error("❌ /api/banks error:", err.message);
-    res.status(500).json({ error: "Failed to fetch bank offers" });
+    console.error("❌ Broadcast error:", err.response?.data || err.message);
+    res.status(500).json({ error: "Failed to send message" });
   }
 });
 
+// Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("✅ LoanHelpline Bot चालू आहे पोर्ट", PORT);
