@@ -3,6 +3,7 @@ const axios = require("axios");
 const { google } = require("googleapis");
 const bodyParser = require("body-parser");
 const app = express();
+
 app.use(bodyParser.json());
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
@@ -21,13 +22,11 @@ const auth = new google.auth.JWT(
 const sheets = google.sheets({ version: "v4", auth });
 
 const userState = {};
-
 const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
 const vinayakNumber = "918329569608";
 
 async function notifyVinayak(leadData) {
   const message = `🔔 नवीन लोन लीड:\n\n👤 नाव: ${leadData.name}\n📞 नंबर: ${leadData.phone}\n🏠 Loan Type: ${leadData.loanType}\n💰 उत्पन्न: ${leadData.income}\n🌍 शहर: ${leadData.city}\n💸 रक्कम: ${leadData.amount}`;
-
   try {
     await axios.post(
       `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
@@ -241,6 +240,57 @@ app.post("/webhook", async (req, res) => {
     res.sendStatus(200);
   } else {
     res.sendStatus(404);
+  }
+});
+
+// ✅ API for React UI
+
+app.get("/api/loan-types", (req, res) => {
+  const loanTypes = [
+    "Home Loan",
+    "Personal Loan",
+    "Transfer Your Loan",
+    "Business Loan",
+    "Mortgage Loan",
+    "Industrial Property Loan",
+    "Commercial Property Loan",
+  ];
+  res.json(loanTypes);
+});
+
+app.get("/api/banks", async (req, res) => {
+  const loanType = req.query.type;
+  const tabMapping = {
+    "Home Loan": "Home Loan Offers",
+    "Personal Loan": "Personal Loan Offers",
+    "Transfer Your Loan": "Transfer Loan Offers",
+    "Business Loan": "Business Loan Offers",
+    "Mortgage Loan": "Mortgage Loan Offers",
+    "Industrial Property Loan": "Industrial Loan Offers",
+    "Commercial Property Loan": "Commercial Loan Offers",
+  };
+  const tabName = tabMapping[loanType];
+  if (!tabName) return res.status(400).json({ error: "Invalid loan type" });
+
+  try {
+    const result = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${tabName}!A1:Z`,
+    });
+    const rows = result.data.values;
+    if (!rows || rows.length < 2) return res.json([]);
+    const headers = rows[0];
+    const offers = rows.slice(1).map((row) => {
+      const obj = {};
+      headers.forEach((h, i) => {
+        obj[h] = row[i] || "";
+      });
+      return obj;
+    });
+    res.json(offers);
+  } catch (err) {
+    console.error("❌ /api/banks error:", err.message);
+    res.status(500).json({ error: "Failed to fetch bank offers" });
   }
 });
 
