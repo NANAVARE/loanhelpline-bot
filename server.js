@@ -1,23 +1,21 @@
+// server.js
 const express = require('express');
 const bodyParser = require('body-parser');
 const { google } = require('googleapis');
 const axios = require('axios');
-
 const app = express();
 const port = process.env.PORT || 10000;
 
 app.use(bodyParser.json());
 
-// Load environment variables
 const WHATSAPP_API_URL = `https://graph.facebook.com/v18.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const SHEET_ID = process.env.SHEET_ID;
 
-const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
-
+const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
 const auth = new google.auth.GoogleAuth({
-  credentials,
-  scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+  credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON),
+  scopes: SCOPES,
 });
 
 const loanTypes = {
@@ -65,26 +63,40 @@ const sendWhatsAppMessage = async (phone, message) => {
 };
 
 const getLoanOfferFromSheet = async (loanType) => {
-  try {
-    const client = await auth.getClient();
-    const sheets = google.sheets({ version: 'v4', auth: client });
-    const range = sheetRanges[loanType];
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range,
-    });
-    return response.data.values[0];
-  } catch (err) {
-    console.error(`❌ Error fetching Google Sheet for ${loanType}:`, err.message);
-    return null;
-  }
+  const client = await auth.getClient();
+  const sheets = google.sheets({ version: 'v4', auth: client });
+  const range = sheetRanges[loanType];
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range,
+  });
+  return response.data.values[0];
+};
+
+const appendLeadToSheet = async (user, phone) => {
+  const client = await auth.getClient();
+  const sheets = google.sheets({ version: 'v4', auth: client });
+  const sheetName = 'Sheet1';
+  const values = [[
+    new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+    user.name,
+    phone,
+    user.loanType,
+    user.income,
+    user.city,
+    user.amount,
+  ]];
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: `${sheetName}!A1`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values },
+  });
 };
 
 const sendLoanOffer = async (phone, loanType) => {
   const offer = await getLoanOfferFromSheet(loanType);
-  if (!offer) {
-    return sendWhatsAppMessage(phone, '⚠️ सध्या ऑफर उपलब्ध नाही.');
-  }
+  if (!offer) return sendWhatsAppMessage(phone, 'कृपया ऑफर सध्या उपलब्ध नाही.');
 
   const message = `🏦 ${offer[0]} ऑफर\n💰 व्याजदर: ${offer[1]}\n🧾 प्रोसेसिंग फी: ${offer[2]}\n📄 टॉप-अप: ${offer[3]}\n📅 वैधता: ${offer[4]}\n📝 विशेष माहिती: ${offer[5]}\nLoanHelpline सेवेसाठी धन्यवाद!`;
   await sendWhatsAppMessage(phone, message);
@@ -131,7 +143,8 @@ app.post('/webhook', async (req, res) => {
       break;
     case 5:
       user.name = text;
-      await sendWhatsAppMessage(phone, '📨 Vinayak ला लीड नोटिफिकेशन पाठवले.');
+      await appendLeadToSheet(user, phone);
+      await sendWhatsAppMessage(phone, '🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केला आहे.\nआमचे प्रतिनिधी लवकरच संपर्क करतील.');
       await sendLoanOffer(phone, user.loanType);
       delete userState[phone];
       break;
