@@ -72,7 +72,7 @@ app.post("/webhook", async (req, res) => {
       let reply = "";
 
       if (["hi", "hello", "loan"].includes(msgBody.toLowerCase())) {
-        reply = 1️⃣ Home Loan\n2️⃣ Personal Loan\n3️⃣ Transfer Your Loan\n4️⃣ Business Loan\n5️⃣ Mortgage Loan\n6️⃣ Industrial Property Loan\n7️⃣ Commercial Property Loan\n\nकृपया फक्त क्रमांक टाका. (उदा: 1);
+        reply = `1️⃣ Home Loan\n2️⃣ Personal Loan\n3️⃣ Transfer Your Loan\n4️⃣ Business Loan\n5️⃣ Mortgage Loan\n6️⃣ Industrial Property Loan\n7️⃣ Commercial Property Loan\n\nकृपया फक्त क्रमांक टाका. (उदा: 1)`;
         state.step = "loanType";
       } else if (state.step === "loanType") {
         const loanTypes = {
@@ -85,7 +85,7 @@ app.post("/webhook", async (req, res) => {
           "7": "Commercial Property Loan",
         };
         state.loanType = loanTypes[msgBody] || "Unknown";
-        reply = ✅ आपण निवडलं आहे: 🔁 ${state.loanType}\n📝 Eligibility साठी माहिती पाठवा:\n- मासिक उत्पन्न (उदा: ₹30000);
+        reply = `✅ आपण निवडलं आहे: 🔁 ${state.loanType}\n📝 Eligibility साठी माहिती पाठवा:\n- मासिक उत्पन्न (उदा: ₹30000)`;
         state.step = "income";
       } else if (state.step === "income") {
         state.income = msgBody;
@@ -104,7 +104,7 @@ app.post("/webhook", async (req, res) => {
 
         await sheets.spreadsheets.values.append({
           spreadsheetId: SHEET_ID,
-          range: ${SHEET_NAME}!A1,
+          range: `${SHEET_NAME}!A1`,
           valueInputOption: "USER_ENTERED",
           requestBody: {
             values: [
@@ -146,7 +146,7 @@ app.post("/webhook", async (req, res) => {
       }
 
       await axios.post(
-        https://graph.facebook.com/v18.0/${value.metadata.phone_number_id}/messages,
+        `https://graph.facebook.com/v18.0/${value.metadata.phone_number_id}/messages`,
         {
           messaging_product: "whatsapp",
           to: from,
@@ -154,7 +154,7 @@ app.post("/webhook", async (req, res) => {
         },
         {
           headers: {
-            Authorization: Bearer ${WHATSAPP_TOKEN},
+            Authorization: `Bearer ${WHATSAPP_TOKEN}`,
             "Content-Type": "application/json",
           },
         }
@@ -169,10 +169,10 @@ app.post("/webhook", async (req, res) => {
 
 // ✅ Vinayak ला WhatsApp वर लीड नोटिफाय करणे
 async function notifyVinayak(leadData) {
-  const message = 🔔 नवीन लोन लीड:\n\n👤 नाव: ${leadData.name}\n📞 नंबर: ${leadData.phone}\n🏠 Loan Type: ${leadData.loanType}\n💰 उत्पन्न: ${leadData.income}\n🌍 शहर: ${leadData.city}\n💸 रक्कम: ${leadData.amount};
+  const message = `🔔 नवीन लोन लीड:\n\n👤 नाव: ${leadData.name}\n📞 नंबर: ${leadData.phone}\n🏠 Loan Type: ${leadData.loanType}\n💰 उत्पन्न: ${leadData.income}\n🌍 शहर: ${leadData.city}\n💸 रक्कम: ${leadData.amount}`;
   try {
     await axios.post(
-      https://graph.facebook.com/v18.0/${phoneNumberId}/messages,
+      `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
       {
         messaging_product: "whatsapp",
         to: vinayakNumber,
@@ -180,7 +180,7 @@ async function notifyVinayak(leadData) {
       },
       {
         headers: {
-          Authorization: Bearer ${WHATSAPP_TOKEN},
+          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
           "Content-Type": "application/json",
         },
       }
@@ -198,13 +198,13 @@ async function sendLoanOffer(leadData) {
 
   const result = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: ${tab}!A2:G2,
+    range: `${tab}!A2:G2`,
   });
   const offer = result.data.values?.[0];
   if (!offer) return;
 
   await axios.post(
-    https://graph.facebook.com/v18.0/${phoneNumberId}/messages,
+    `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
     {
       messaging_product: "whatsapp",
       to: leadData.phone,
@@ -222,7 +222,7 @@ async function sendLoanOffer(leadData) {
     },
     {
       headers: {
-        Authorization: Bearer ${WHATSAPP_TOKEN},
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
         "Content-Type": "application/json",
       },
     }
@@ -231,15 +231,12 @@ async function sendLoanOffer(leadData) {
 }
 
 //
-// ✅ ✅ ✅ NEW: API Endpoints for Broadcast UI
+// ✅ API Endpoints for Broadcast UI
 //
-
-// 📌 GET /api/loan-types
 app.get("/api/loan-types", (req, res) => {
   res.json(Object.keys(sheetTabs));
 });
 
-// 📌 GET /api/banks?type=Home Loan
 app.get("/api/banks", async (req, res) => {
   const type = req.query.type;
   const tab = sheetTabs[type];
@@ -247,13 +244,12 @@ app.get("/api/banks", async (req, res) => {
 
   const result = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: ${tab}!A2:A,
+    range: `${tab}!A2:A`,
   });
   const banks = result.data.values?.map((row) => row[0]).filter(Boolean);
   res.json(banks || []);
 });
 
-// 📌 POST /api/send-offer
 app.post("/api/send-offer", async (req, res) => {
   const { phone, loanType, bankName } = req.body;
   const tab = sheetTabs[loanType];
@@ -261,7 +257,7 @@ app.post("/api/send-offer", async (req, res) => {
 
   const result = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: ${tab}!A2:G,
+    range: `${tab}!A2:G`,
   });
   const rows = result.data.values;
   const row = rows.find((r) => r[0] === bankName);
@@ -269,7 +265,7 @@ app.post("/api/send-offer", async (req, res) => {
 
   try {
     await axios.post(
-      https://graph.facebook.com/v18.0/${phoneNumberId}/messages,
+      `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
       {
         messaging_product: "whatsapp",
         to: phone,
@@ -287,7 +283,7 @@ app.post("/api/send-offer", async (req, res) => {
       },
       {
         headers: {
-          Authorization: Bearer ${WHATSAPP_TOKEN},
+          Authorization: `Bearer ${WHATSAPP_TOKEN}`,
           "Content-Type": "application/json",
         },
       }
