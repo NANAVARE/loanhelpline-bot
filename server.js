@@ -1,23 +1,24 @@
-// server.js
 const express = require('express');
 const bodyParser = require('body-parser');
 const { google } = require('googleapis');
 const axios = require('axios');
+
 const app = express();
 const port = process.env.PORT || 10000;
 
 app.use(bodyParser.json());
 
-const WHATSAPP_API_URL = 'https://graph.facebook.com/v18.0/YOUR_PHONE_NUMBER_ID/messages';
-const WHATSAPP_TOKEN = 'YOUR_WHATSAPP_API_TOKEN';
+// Load environment variables
+const WHATSAPP_API_URL = `https://graph.facebook.com/v18.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const SHEET_ID = process.env.SHEET_ID;
 
-const SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly'];
+const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+
 const auth = new google.auth.GoogleAuth({
-  keyFile: 'google-credentials.json',
-  scopes: SCOPES,
+  credentials,
+  scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
 });
-
-const SHEET_ID = 'YOUR_GOOGLE_SHEET_ID';
 
 const loanTypes = {
   '1': 'Home Loan',
@@ -64,19 +65,26 @@ const sendWhatsAppMessage = async (phone, message) => {
 };
 
 const getLoanOfferFromSheet = async (loanType) => {
-  const client = await auth.getClient();
-  const sheets = google.sheets({ version: 'v4', auth: client });
-  const range = sheetRanges[loanType];
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range,
-  });
-  return response.data.values[0];
+  try {
+    const client = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const range = sheetRanges[loanType];
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range,
+    });
+    return response.data.values[0];
+  } catch (err) {
+    console.error(`❌ Error fetching Google Sheet for ${loanType}:`, err.message);
+    return null;
+  }
 };
 
 const sendLoanOffer = async (phone, loanType) => {
   const offer = await getLoanOfferFromSheet(loanType);
-  if (!offer) return sendWhatsAppMessage(phone, 'कृपया ऑफर सध्या उपलब्ध नाही.');
+  if (!offer) {
+    return sendWhatsAppMessage(phone, '⚠️ सध्या ऑफर उपलब्ध नाही.');
+  }
 
   const message = `🏦 ${offer[0]} ऑफर\n💰 व्याजदर: ${offer[1]}\n🧾 प्रोसेसिंग फी: ${offer[2]}\n📄 टॉप-अप: ${offer[3]}\n📅 वैधता: ${offer[4]}\n📝 विशेष माहिती: ${offer[5]}\nLoanHelpline सेवेसाठी धन्यवाद!`;
   await sendWhatsAppMessage(phone, message);
