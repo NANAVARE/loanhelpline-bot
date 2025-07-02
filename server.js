@@ -7,17 +7,19 @@ const port = process.env.PORT || 10000;
 
 app.use(bodyParser.json());
 
-// ENV config
+// 🛡️ ENV variables
 const WHATSAPP_API_URL = `https://graph.facebook.com/v18.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
-const ADMIN_PHONE = '918329569608';
 const SHEET_ID = process.env.SHEET_ID;
+const ADMIN_PHONE = '918329569608';
 
+const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
 const auth = new google.auth.GoogleAuth({
   credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON),
-  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  scopes: SCOPES,
 });
 
+// 🔢 Loan types & sheet ranges
 const loanTypes = {
   '1': 'Home Loan',
   '2': 'Personal Loan',
@@ -29,13 +31,13 @@ const loanTypes = {
 };
 
 const sheetRanges = {
-  'Home Loan': 'Home Loan Offers!A2:G2',
-  'Personal Loan': 'Personal Loan Offers!A2:G2',
-  'Transfer Your Loan': 'Transfer Loan Offers!A2:G2',
-  'Business Loan': 'Business Loan Offers!A2:G2',
-  'Mortgage Loan': 'Mortgage Loan Offers!A2:G2',
-  'Industrial Property Loan': 'Industrial Property Offers!A2:G2',
-  'Commercial Property Loan': 'Commercial Property Offers!A2:G2',
+  'Home Loan': 'Home Loan Offers!A2:G100',
+  'Personal Loan': 'Personal Loan Offers!A2:G100',
+  'Transfer Your Loan': 'Transfer Loan Offers!A2:G100',
+  'Business Loan': 'Business Loan Offers!A2:G100',
+  'Mortgage Loan': 'Mortgage Loan Offers!A2:G100',
+  'Industrial Property Loan': 'Industrial Property Offers!A2:G100',
+  'Commercial Property Loan': 'Commercial Property Offers!A2:G100',
 };
 
 const userState = {}; // phone => { step, loanType, income, city, amount, name }
@@ -62,7 +64,7 @@ const sendWhatsAppMessage = async (phone, message) => {
   }
 };
 
-const getLoanOfferFromSheet = async (loanType) => {
+const getLoanOffersFromSheet = async (loanType) => {
   const client = await auth.getClient();
   const sheets = google.sheets({ version: 'v4', auth: client });
   const range = sheetRanges[loanType];
@@ -70,35 +72,38 @@ const getLoanOfferFromSheet = async (loanType) => {
     spreadsheetId: SHEET_ID,
     range,
   });
-  return response.data.values[0];
+  return response.data.values;
 };
 
-const saveLeadToSheet = async ({ name, phone, city, income, loanType, amount }) => {
+const sendLoanOffers = async (phone, loanType) => {
+  const offers = await getLoanOffersFromSheet(loanType);
+  if (!offers || offers.length === 0) {
+    return sendWhatsAppMessage(phone, 'कृपया ऑफर सध्या उपलब्ध नाही.');
+  }
+
+  for (const offer of offers) {
+    if (offer.length < 6 || !offer[0]) continue; // Skip blank rows
+    const message = `🏦 ${offer[0]} ऑफर\n💰 व्याजदर: ${offer[1]}\n🧾 प्रोसेसिंग फी: ${offer[2]}\n📄 टॉप-अप: ${offer[3]}\n📅 वैधता: ${offer[4]}\n📝 विशेष माहिती: ${offer[5]}\nLoanHelpline सेवेसाठी धन्यवाद!`;
+    await sendWhatsAppMessage(phone, message);
+  }
+};
+
+const saveLeadToSheet = async (lead) => {
   const client = await auth.getClient();
   const sheets = google.sheets({ version: 'v4', auth: client });
-
-  const timestamp = new Date().toLocaleString('en-GB', { timeZone: 'Asia/Kolkata' });
-  const values = [[timestamp, name, phone, city, income, loanType, amount, 'New Lead']];
-
+  const now = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+  const values = [[now, lead.name, lead.phone, lead.city, lead.income, lead.loanType, lead.amount, 'New Lead']];
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
-    range: 'Sheet1!A2:H2',
+    range: 'Sheet1!A2',
     valueInputOption: 'USER_ENTERED',
-    resource: { values },
+    requestBody: { values },
   });
 };
 
-const sendLoanOffer = async (phone, loanType) => {
-  const offer = await getLoanOfferFromSheet(loanType);
-  if (!offer) return sendWhatsAppMessage(phone, 'कृपया ऑफर सध्या उपलब्ध नाही.');
-
-  const message = `🏦 ${offer[0]} ऑफर\n💰 व्याजदर: ${offer[1]}\n🧾 प्रोसेसिंग फी: ${offer[2]}\n📄 टॉप-अप: ${offer[3]}\n📅 वैधता: ${offer[4]}\n📝 विशेष माहिती: ${offer[5]}\nLoanHelpline सेवेसाठी धन्यवाद!`;
-  await sendWhatsAppMessage(phone, message);
-};
-
 const notifyAdmin = async (lead) => {
-  const message = `⚠️ नवीन लोन लीड:\n👤 नाव: ${lead.name}\n📞 नंबर: ${lead.phone}\n🏦 Loan Type: ${lead.loanType}\n💰 उत्पन्न: ${lead.income}\n🌍 शहर: ${lead.city}\n📉 रक्कम: ${lead.amount}`;
-  await sendWhatsAppMessage(ADMIN_PHONE, message);
+  const msg = `⚠️ नवीन लोन लीड:\n👤 नाव: ${lead.name}\n📞 नंबर: ${lead.phone}\n🏦 Loan Type: ${lead.loanType}\n💰 उत्पन्न: ${lead.income}\n🌍 शहर: ${lead.city}\n📉 रक्कम: ${lead.amount}`;
+  await sendWhatsAppMessage(ADMIN_PHONE, msg);
 };
 
 app.post('/webhook', async (req, res) => {
@@ -107,7 +112,7 @@ app.post('/webhook', async (req, res) => {
 
   const phone = message.from;
   const text = message.text?.body.trim();
-  const user = userState[phone] || { step: 0 };
+  const user = userState[phone] || { step: 0, phone };
 
   switch (user.step) {
     case 0:
@@ -117,7 +122,6 @@ app.post('/webhook', async (req, res) => {
       );
       user.step = 1;
       break;
-
     case 1:
       user.loanType = loanTypes[text];
       if (!user.loanType) {
@@ -126,47 +130,28 @@ app.post('/webhook', async (req, res) => {
       await sendWhatsAppMessage(phone, `✅ आपण निवडलं आहे: 🔁 ${user.loanType}\n📝 Eligibility साठी माहिती पाठवा:\n- मासिक उत्पन्न (उदा: ₹30000)`);
       user.step = 2;
       break;
-
     case 2:
       user.income = text;
       await sendWhatsAppMessage(phone, '🌍 तुमचं शहर/गाव सांगा (उदा: Pune)');
       user.step = 3;
       break;
-
     case 3:
       user.city = text;
       await sendWhatsAppMessage(phone, '💰 तुम्हाला किती लोन हवा आहे? (उदा: ₹15 लाख)');
       user.step = 4;
       break;
-
     case 4:
       user.amount = text;
       await sendWhatsAppMessage(phone, '😇 नाव सांगा (उदा: Rahul Patil)');
       user.step = 5;
       break;
-
     case 5:
       user.name = text;
 
-      // Confirm user
-      await sendWhatsAppMessage(phone, '🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केला आहे.\nआमचे प्रतिनिधी लवकरच संपर्क करतील.');
-
-      // Save to sheet
-      const lead = {
-        name: user.name,
-        phone,
-        city: user.city,
-        income: user.income,
-        loanType: user.loanType,
-        amount: user.amount,
-      };
-      await saveLeadToSheet(lead);
-
-      // Notify admin
-      await notifyAdmin(lead);
-
-      // Send loan offer
-      await sendLoanOffer(phone, user.loanType);
+      await sendWhatsAppMessage(phone, `🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केला आहे.\nआमचे प्रतिनिधी लवकरच संपर्क करतील.`);
+      await notifyAdmin(user);
+      await saveLeadToSheet(user);
+      await sendLoanOffers(phone, user.loanType);
 
       delete userState[phone];
       break;
