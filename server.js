@@ -27,15 +27,15 @@ const userState = {};
 const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
 const vinayakNumber = "918329569608";
 
-// 🧠 ✅ Corrected Sheet Mapping
+// 🧠 Bank Sheet Mapping
 const sheetTabs = {
   "Home Loan": "Home Loan Offers",
   "Transfer Your Loan": "Transfer Loan Offers",
   "Personal Loan": "Personal Loan Offers",
   "Business Loan": "Business Loan Offers",
   "Mortgage Loan": "Mortgage Loan Offers",
-  "Industrial Property Loan": "Industrial Property Loan Offers", // ✅ Fixed
-  "Commercial Property Loan": "Commercial Loan Offers",
+  "Industrial Property Loan": "Industrial Property Offers",
+  "Commercial Property Loan": "Commercial Property Offers",
 };
 
 // ✅ Webhook verification
@@ -167,7 +167,7 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// ✅ Notify Vinayak
+// ✅ Notify Vinayak via WhatsApp
 async function notifyVinayak(leadData) {
   const message = `🔔 नवीन लोन लीड:\n\n👤 नाव: ${leadData.name}\n📞 नंबर: ${leadData.phone}\n🏠 Loan Type: ${leadData.loanType}\n💰 उत्पन्न: ${leadData.income}\n🌍 शहर: ${leadData.city}\n💸 रक्कम: ${leadData.amount}`;
   try {
@@ -191,7 +191,7 @@ async function notifyVinayak(leadData) {
   }
 }
 
-// ✅ Template Message
+// ✅ Send Offer Template
 async function sendLoanOffer(leadData) {
   const tab = sheetTabs[leadData.loanType];
   if (!tab) return;
@@ -201,7 +201,7 @@ async function sendLoanOffer(leadData) {
     range: `${tab}!A2:G2`,
   });
   const offer = result.data.values?.[0];
-  if (!offer) return;
+  if (!offer || offer.length < 6) return;
 
   await axios.post(
     `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`,
@@ -215,7 +215,10 @@ async function sendLoanOffer(leadData) {
         components: [
           {
             type: "body",
-            parameters: offer.map((text) => ({ type: "text", text: text || "-" })),
+            parameters: offer.slice(0, 6).map((text) => ({
+              type: "text",
+              text: text || "-",
+            })),
           },
         ],
       },
@@ -230,7 +233,8 @@ async function sendLoanOffer(leadData) {
   console.log("📨 Loan Offer पाठवली:", leadData.phone);
 }
 
-// ✅ API Endpoints for Broadcast UI
+// ✅ Broadcast APIs
+
 app.get("/api/loan-types", (req, res) => {
   res.json(Object.keys(sheetTabs));
 });
@@ -259,7 +263,7 @@ app.post("/api/send-offer", async (req, res) => {
   });
   const rows = result.data.values;
   const row = rows.find((r) => r[0] === bankName);
-  if (!row) return res.status(404).json({ error: "Bank not found" });
+  if (!row || row.length < 6) return res.status(404).json({ error: "Bank not found or invalid data" });
 
   try {
     await axios.post(
@@ -274,7 +278,10 @@ app.post("/api/send-offer", async (req, res) => {
           components: [
             {
               type: "body",
-              parameters: row.map((cell) => ({ type: "text", text: cell || "-" })),
+              parameters: row.slice(0, 6).map((cell) => ({
+                type: "text",
+                text: cell || "-",
+              })),
             },
           ],
         },
@@ -294,7 +301,7 @@ app.post("/api/send-offer", async (req, res) => {
   }
 });
 
-// Start server
+// ✅ Start Server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("✅ LoanHelpline Bot चालू आहे पोर्ट", PORT);
