@@ -1,4 +1,3 @@
-// server.js
 const express = require('express');
 const bodyParser = require('body-parser');
 const { google } = require('googleapis');
@@ -8,14 +7,15 @@ const port = process.env.PORT || 10000;
 
 app.use(bodyParser.json());
 
+// ENV config
 const WHATSAPP_API_URL = `https://graph.facebook.com/v18.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const ADMIN_PHONE = '918329569608';
 const SHEET_ID = process.env.SHEET_ID;
 
-const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
 const auth = new google.auth.GoogleAuth({
   credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON),
-  scopes: SCOPES,
+  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
 
 const loanTypes = {
@@ -73,24 +73,18 @@ const getLoanOfferFromSheet = async (loanType) => {
   return response.data.values[0];
 };
 
-const appendLeadToSheet = async (user, phone) => {
+const saveLeadToSheet = async ({ name, phone, city, income, loanType, amount }) => {
   const client = await auth.getClient();
   const sheets = google.sheets({ version: 'v4', auth: client });
-  const sheetName = 'Sheet1';
-  const values = [[
-    new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
-    user.name,
-    phone,
-    user.loanType,
-    user.income,
-    user.city,
-    user.amount,
-  ]];
+
+  const timestamp = new Date().toLocaleString('en-GB', { timeZone: 'Asia/Kolkata' });
+  const values = [[timestamp, name, phone, city, income, loanType, amount, 'New Lead']];
+
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
-    range: `${sheetName}!A1`,
+    range: 'Sheet1!A2:H2',
     valueInputOption: 'USER_ENTERED',
-    requestBody: { values },
+    resource: { values },
   });
 };
 
@@ -100,6 +94,11 @@ const sendLoanOffer = async (phone, loanType) => {
 
   const message = `🏦 ${offer[0]} ऑफर\n💰 व्याजदर: ${offer[1]}\n🧾 प्रोसेसिंग फी: ${offer[2]}\n📄 टॉप-अप: ${offer[3]}\n📅 वैधता: ${offer[4]}\n📝 विशेष माहिती: ${offer[5]}\nLoanHelpline सेवेसाठी धन्यवाद!`;
   await sendWhatsAppMessage(phone, message);
+};
+
+const notifyAdmin = async (lead) => {
+  const message = `⚠️ नवीन लोन लीड:\n👤 नाव: ${lead.name}\n📞 नंबर: ${lead.phone}\n🏦 Loan Type: ${lead.loanType}\n💰 उत्पन्न: ${lead.income}\n🌍 शहर: ${lead.city}\n📉 रक्कम: ${lead.amount}`;
+  await sendWhatsAppMessage(ADMIN_PHONE, message);
 };
 
 app.post('/webhook', async (req, res) => {
@@ -118,6 +117,7 @@ app.post('/webhook', async (req, res) => {
       );
       user.step = 1;
       break;
+
     case 1:
       user.loanType = loanTypes[text];
       if (!user.loanType) {
@@ -126,26 +126,48 @@ app.post('/webhook', async (req, res) => {
       await sendWhatsAppMessage(phone, `✅ आपण निवडलं आहे: 🔁 ${user.loanType}\n📝 Eligibility साठी माहिती पाठवा:\n- मासिक उत्पन्न (उदा: ₹30000)`);
       user.step = 2;
       break;
+
     case 2:
       user.income = text;
       await sendWhatsAppMessage(phone, '🌍 तुमचं शहर/गाव सांगा (उदा: Pune)');
       user.step = 3;
       break;
+
     case 3:
       user.city = text;
       await sendWhatsAppMessage(phone, '💰 तुम्हाला किती लोन हवा आहे? (उदा: ₹15 लाख)');
       user.step = 4;
       break;
+
     case 4:
       user.amount = text;
       await sendWhatsAppMessage(phone, '😇 नाव सांगा (उदा: Rahul Patil)');
       user.step = 5;
       break;
+
     case 5:
       user.name = text;
-      await appendLeadToSheet(user, phone);
+
+      // Confirm user
       await sendWhatsAppMessage(phone, '🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केला आहे.\nआमचे प्रतिनिधी लवकरच संपर्क करतील.');
+
+      // Save to sheet
+      const lead = {
+        name: user.name,
+        phone,
+        city: user.city,
+        income: user.income,
+        loanType: user.loanType,
+        amount: user.amount,
+      };
+      await saveLeadToSheet(lead);
+
+      // Notify admin
+      await notifyAdmin(lead);
+
+      // Send loan offer
       await sendLoanOffer(phone, user.loanType);
+
       delete userState[phone];
       break;
   }
