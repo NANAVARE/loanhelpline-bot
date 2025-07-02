@@ -27,14 +27,14 @@ const userState = {};
 const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
 const vinayakNumber = "918329569608";
 
-// 🧠 Bank Sheet Mapping
+// 🧠 ✅ Corrected Sheet Mapping
 const sheetTabs = {
   "Home Loan": "Home Loan Offers",
   "Transfer Your Loan": "Transfer Loan Offers",
   "Personal Loan": "Personal Loan Offers",
   "Business Loan": "Business Loan Offers",
   "Mortgage Loan": "Mortgage Loan Offers",
-  "Industrial Property Loan": "Industrial Loan Offers",
+  "Industrial Property Loan": "Industrial Property Loan Offers", // ✅ Fixed
   "Commercial Property Loan": "Commercial Loan Offers",
 };
 
@@ -167,7 +167,7 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// ✅ Vinayak ला WhatsApp वर लीड नोटिफाय करणे
+// ✅ Notify Vinayak
 async function notifyVinayak(leadData) {
   const message = `🔔 नवीन लोन लीड:\n\n👤 नाव: ${leadData.name}\n📞 नंबर: ${leadData.phone}\n🏠 Loan Type: ${leadData.loanType}\n💰 उत्पन्न: ${leadData.income}\n🌍 शहर: ${leadData.city}\n💸 रक्कम: ${leadData.amount}`;
   try {
@@ -191,7 +191,7 @@ async function notifyVinayak(leadData) {
   }
 }
 
-// ✅ Template Message पाठवणे
+// ✅ Template Message
 async function sendLoanOffer(leadData) {
   const tab = sheetTabs[leadData.loanType];
   if (!tab) return;
@@ -230,9 +230,7 @@ async function sendLoanOffer(leadData) {
   console.log("📨 Loan Offer पाठवली:", leadData.phone);
 }
 
-//
 // ✅ API Endpoints for Broadcast UI
-//
 app.get("/api/loan-types", (req, res) => {
   res.json(Object.keys(sheetTabs));
 });
