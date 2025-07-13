@@ -28,16 +28,6 @@ const loanTypes = {
   '7': 'Commercial Property Loan',
 };
 
-const sheetRanges = {
-  'Home Loan': 'Home Loan Offers!A2:G100',
-  'Personal Loan': 'Personal Loan Offers!A2:G100',
-  'Transfer Your Loan': 'Transfer Loan Offers!A2:G100',
-  'Business Loan': 'Business Loan Offers!A2:G100',
-  'Mortgage Loan': 'Mortgage Loan Offers!A2:G100',
-  'Industrial Property Loan': 'Industrial Property Offers!A2:G100',
-  'Commercial Property Loan': 'Commercial Property Offers!A2:G100',
-};
-
 const userState = {}; // phone => { step, name, phone, city, income, loanType, amount }
 
 const sendWhatsAppMessage = async (phone, message) => {
@@ -62,63 +52,53 @@ const sendWhatsAppMessage = async (phone, message) => {
   }
 };
 
-const getLoanOffersFromSheet = async (loanType) => {
-  const client = await auth.getClient();
-  const sheets = google.sheets({ version: 'v4', auth: client });
-  const range = sheetRanges[loanType];
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range,
-  });
-  return response.data.values;
-};
-
-const sendLoanOffers = async (phone, loanType) => {
-  const offers = await getLoanOffersFromSheet(loanType);
-  if (!offers || offers.length === 0) {
-    return sendWhatsAppMessage(phone, 'कृपया ऑफर सध्या उपलब्ध नाही.');
-  }
-
-  for (const offer of offers) {
-    if (offer.length < 6 || !offer[0]) continue;
-    const message = `🔶 ${offer[0]} कडून आकर्षक ${loanType} ऑफर:\n\n💼 लोन प्रकार: ${loanType}\n📉 व्याजदर: ${offer[1]}\n💰 कर्ज मर्यादा: ${offer[2]}\n📆 कालावधी: ${offer[3]}\n📄 प्रोसेसिंग फी: ${offer[4]}\n➕ टॉप-अप: ${offer[5]}\n✅ पूर्व-परतफेड: ${offer[6]}\n\nLoanHelpline सेवेसाठी धन्यवाद!`;
-    await sendWhatsAppMessage(phone, message);
-  }
-};
-
 const leadExists = async (phone) => {
-  const client = await auth.getClient();
-  const sheets = google.sheets({ version: 'v4', auth: client });
-  const result = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range: 'Sheet1!A2:I1000',
-  });
+  try {
+    const client = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const result = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: 'Sheet1!A2:I',
+    });
 
-  const rows = result.data.values || [];
-  return rows.some((row) => row[2] === phone);
+    const rows = result.data.values || [];
+    return rows.some((row) => row[2] === phone);
+  } catch (err) {
+    console.error('❌ Error checking lead existence:', err.message);
+    return false;
+  }
 };
 
 const saveLeadToSheet = async (lead) => {
-  const client = await auth.getClient();
-  const sheets = google.sheets({ version: 'v4', auth: client });
-  const now = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
-  const values = [[
-    now,
-    lead.name,
-    lead.phone,
-    lead.city,
-    lead.income,
-    lead.loanType,
-    lead.amount,
-    'New Lead',
-    'WhatsApp Bot'
-  ]];
-  await sheets.spreadsheets.values.append({
-    spreadsheetId: SHEET_ID,
-    range: 'Sheet1!A2',
-    valueInputOption: 'USER_ENTERED',
-    requestBody: { values },
-  });
+  try {
+    const client = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: client });
+
+    const now = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+
+    const values = [[
+      now,
+      lead.name,
+      lead.phone,
+      lead.city,
+      lead.income,
+      lead.loanType,
+      lead.amount,
+      'New Lead',
+      'WhatsApp Bot'
+    ]];
+
+    const result = await sheets.spreadsheets.values.append({
+      spreadsheetId: SHEET_ID,
+      range: 'Sheet1!A2',
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values },
+    });
+
+    console.log('✅ Lead successfully saved to Google Sheet:', result.data.updates);
+  } catch (err) {
+    console.error('❌ Error saving lead to Google Sheet:', err.response?.data || err.message);
+  }
 };
 
 const notifyAdmin = async (lead) => {
@@ -131,7 +111,9 @@ app.post('/webhook', async (req, res) => {
   if (!message) return res.sendStatus(200);
 
   const phone = message.from;
-  const text = message.text?.body.trim();
+  const text = message.text?.body?.trim();
+  if (!text) return res.sendStatus(200);
+
   const user = userState[phone] || { step: 0, phone };
 
   switch (user.step) {
@@ -176,18 +158,35 @@ app.post('/webhook', async (req, res) => {
       await sendWhatsAppMessage(phone, `🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केला आहे.\nआमचे प्रतिनिधी लवकरच संपर्क करतील.`);
       await notifyAdmin(user);
 
+      console.log('📝 Lead ready to save:', user);
+
       const exists = await leadExists(user.phone);
       if (!exists) {
         await saveLeadToSheet(user);
+      } else {
+        console.log('ℹ️ Duplicate lead, not saving.');
       }
 
-      await sendLoanOffers(phone, user.loanType);
       delete userState[phone];
       break;
   }
 
   userState[phone] = user;
   res.sendStatus(200);
+});
+
+app.get('/webhook', (req, res) => {
+  const verify_token = process.env.META_VERIFY_TOKEN;
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode && token && mode === 'subscribe' && token === verify_token) {
+    console.log('✅ Webhook Verified');
+    res.status(200).send(challenge);
+  } else {
+    res.sendStatus(403);
+  }
 });
 
 app.get('/', (req, res) => {
