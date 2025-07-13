@@ -7,17 +7,20 @@ const port = process.env.PORT || 10000;
 
 app.use(bodyParser.json());
 
+// ✅ Constants
 const WHATSAPP_API_URL = `https://graph.facebook.com/v18.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const SHEET_ID = process.env.SHEET_ID;
 const ADMIN_PHONE = '918329569608';
 
+// ✅ Google Sheets Auth
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
 const auth = new google.auth.GoogleAuth({
   credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON),
   scopes: SCOPES,
 });
 
+// ✅ Loan Options
 const loanTypes = {
   '1': 'Home Loan',
   '2': 'Personal Loan',
@@ -28,8 +31,13 @@ const loanTypes = {
   '7': 'Commercial Property Loan',
 };
 
-const userState = {}; // phone => { step, name, phone, city, income, loanType, amount }
+// ✅ User State Tracker
+const userState = {}; // phone => { step, ... }
 
+// ✅ Blocked Numbers
+const blacklistedNumbers = ['919599816917'];
+
+// ✅ Send WhatsApp Text Message
 const sendWhatsAppMessage = async (phone, message) => {
   try {
     await axios.post(
@@ -52,11 +60,11 @@ const sendWhatsAppMessage = async (phone, message) => {
   }
 };
 
+// ✅ Save Lead to Google Sheet
 const saveLeadToSheet = async (lead) => {
   try {
     const client = await auth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: client });
-
     const now = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
 
     const values = [[
@@ -84,11 +92,13 @@ const saveLeadToSheet = async (lead) => {
   }
 };
 
+// ✅ Notify Admin
 const notifyAdmin = async (lead) => {
   const msg = `⚠️ नवीन लोन लीड:\n👤 नाव: ${lead.name}\n📞 नंबर: ${lead.phone}\n🏦 Loan Type: ${lead.loanType}\n💰 उत्पन्न: ${lead.income}\n🌍 शहर: ${lead.city}\n📉 रक्कम: ${lead.amount}`;
   await sendWhatsAppMessage(ADMIN_PHONE, msg);
 };
 
+// ✅ Webhook: POST Handler
 app.post('/webhook', async (req, res) => {
   const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
   if (!message) return res.sendStatus(200);
@@ -96,6 +106,12 @@ app.post('/webhook', async (req, res) => {
   const phone = message.from;
   const text = message.text?.body?.trim();
   if (!text) return res.sendStatus(200);
+
+  // 🛑 Block blacklisted numbers
+  if (blacklistedNumbers.includes(phone)) {
+    console.log(`⚠️ ब्लॅकलिस्टेड नंबर (${phone}) – मेसेज ब्लॉक केला.`);
+    return res.sendStatus(200);
+  }
 
   const user = userState[phone] || { step: 0, phone };
 
@@ -137,10 +153,9 @@ app.post('/webhook', async (req, res) => {
 
     case 5:
       user.name = text;
-
       await sendWhatsAppMessage(phone, `🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केला आहे.\nआमचे प्रतिनिधी लवकरच संपर्क करतील.`);
       await notifyAdmin(user);
-      await saveLeadToSheet(user);  // ✅ ALWAYS save the lead
+      await saveLeadToSheet(user); // ✅ Always save
       delete userState[phone];
       break;
   }
@@ -149,6 +164,7 @@ app.post('/webhook', async (req, res) => {
   res.sendStatus(200);
 });
 
+// ✅ Webhook GET Handler (Verification)
 app.get('/webhook', (req, res) => {
   const verify_token = process.env.META_VERIFY_TOKEN;
   const mode = req.query['hub.mode'];
@@ -163,10 +179,12 @@ app.get('/webhook', (req, res) => {
   }
 });
 
+// ✅ Root Route
 app.get('/', (req, res) => {
   res.send('✅ LoanHelpline Bot चालू आहे');
 });
 
+// ✅ Start Server
 app.listen(port, () => {
   console.log(`✅ LoanHelpline Bot चालू आहे पोर्ट ${port}`);
 });
