@@ -52,23 +52,6 @@ const sendWhatsAppMessage = async (phone, message) => {
   }
 };
 
-const leadExists = async (phone) => {
-  try {
-    const client = await auth.getClient();
-    const sheets = google.sheets({ version: 'v4', auth: client });
-    const result = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: 'Sheet1!A2:I',
-    });
-
-    const rows = result.data.values || [];
-    return rows.some((row) => row[2] === phone);
-  } catch (err) {
-    console.error('❌ Error checking lead existence:', err.message);
-    return false;
-  }
-};
-
 const saveLeadToSheet = async (lead) => {
   try {
     const client = await auth.getClient();
@@ -157,16 +140,7 @@ app.post('/webhook', async (req, res) => {
 
       await sendWhatsAppMessage(phone, `🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केला आहे.\nआमचे प्रतिनिधी लवकरच संपर्क करतील.`);
       await notifyAdmin(user);
-
-      console.log('📝 Lead ready to save:', user);
-
-      const exists = await leadExists(user.phone);
-      if (!exists) {
-        await saveLeadToSheet(user);
-      } else {
-        console.log('ℹ️ Duplicate lead, not saving.');
-      }
-
+      await saveLeadToSheet(user);  // ✅ ALWAYS save the lead
       delete userState[phone];
       break;
   }
