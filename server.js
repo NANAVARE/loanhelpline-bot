@@ -2,7 +2,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const { google } = require('googleapis');
 const axios = require('axios');
-const { GoogleGenerativeAI } = require('@google/generative-ai'); // ✅ Gemini API लायब्ररी जोडली
+const { GoogleGenerativeAI } = require('@google/generative-ai'); // ✅ Gemini API लायब्ररी
 const app = express();
 const port = process.env.PORT || 10000;
 
@@ -64,10 +64,10 @@ const sendWhatsAppMessage = async (phone, message) => {
   }
 };
 
-// ✅ Gemini AI Agent: Smart Text Analysis (युजरचे इनपुट समजून घेण्यासाठी)
+// ✅ Gemini AI Agent: Smart Text Analysis (Updated with gemini-pro)
 const parseInputWithGemini = async (userText, step) => {
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-pro' }); // ✅ अचूक मॉडेल अपडेट केले
     const prompt = `You are an intelligent assistant for a Loan DSA agency chatbot. 
     Analyze the user's response based on the current step (${step}). 
     If step 1, extract the loan type number (1 to 7). If no direct number, match it to the closest loan type.
