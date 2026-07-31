@@ -24,21 +24,8 @@ const auth = new google.auth.GoogleAuth({
   scopes: SCOPES,
 });
 
-// ✅ Loan Options
-const loanTypes = {
-  '1': 'Home Loan',
-  '2': 'Personal Loan',
-  '3': 'Transfer Your Loan',
-  '4': 'Business Loan',
-  '5': 'Mortgage Loan',
-  '6': 'Industrial Property Loan',
-  '7': 'Commercial Property Loan',
-};
-
-// ✅ User State Tracker
-const userState = {}; // phone => { step, ... }
-
-// ✅ Blocked Numbers
+// ✅ User Sessions & Conversation History
+const userSessions = {}; 
 const blacklistedNumbers = ['919599816917'];
 
 // ✅ Send WhatsApp Text Message
@@ -64,24 +51,6 @@ const sendWhatsAppMessage = async (phone, message) => {
   }
 };
 
-// ✅ Gemini AI Agent: Smart Text Analysis (Updated to gemini-2.5-flash)
-const parseInputWithGemini = async (userText, step) => {
-  try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' }); // ✅ नवीन स्टेबल मॉडेल
-    const prompt = `You are an intelligent assistant for a Loan DSA agency chatbot. 
-    Analyze the user's response based on the current step (${step}). 
-    If step 1, extract the loan type number (1 to 7). If no direct number, match it to the closest loan type.
-    Return only the extracted core value or number, nothing else. User input: "${userText}"`;
-
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    return response.text().trim();
-  } catch (error) {
-    console.error('❌ Gemini AI Error:', error);
-    return userText; 
-  }
-};
-
 // ✅ Save Lead to Google Sheet
 const saveLeadToSheet = async (lead) => {
   try {
@@ -91,24 +60,24 @@ const saveLeadToSheet = async (lead) => {
 
     const values = [[
       now,
-      lead.name,
+      lead.name || 'Not Provided',
       lead.phone,
-      lead.city,
-      lead.income,
-      lead.loanType,
-      lead.amount,
+      lead.city || 'Not Provided',
+      lead.income || 'Not Provided',
+      lead.loanType || 'Not Provided',
+      lead.amount || 'Not Provided',
       'New Lead',
-      'WhatsApp Bot + Gemini AI'
+      'Loan Expert AI Agent'
     ]];
 
-    const result = await sheets.spreadsheets.values.append({
+    await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
       range: 'Sheet1!A2',
       valueInputOption: 'USER_ENTERED',
       requestBody: { values },
     });
 
-    console.log('✅ Lead successfully saved to Google Sheet:', result.data.updates);
+    console.log('✅ Lead successfully saved to Google Sheet');
   } catch (err) {
     console.error('❌ Error saving lead to Google Sheet:', err.response?.data || err.message);
   }
@@ -116,8 +85,99 @@ const saveLeadToSheet = async (lead) => {
 
 // ✅ Notify Admin
 const notifyAdmin = async (lead) => {
-  const msg = `⚠️ नवीन लोन लीड (Gemini AI Enabled):\n👤 नाव: ${lead.name}\n📞 नंबर: ${lead.phone}\n🏦 Loan Type: ${lead.loanType}\n💰 उत्पन्न: ${lead.income}\n🌍 शहर: ${lead.city}\n📉 रक्कम: ${lead.amount}`;
+  const msg = `⚠️ नवीन लोन लीड (Loan Expert AI):\n👤 नाव: ${lead.name}\n📞 नंबर: ${lead.phone}\n🏦 Loan Type: ${lead.loanType}\n💰 उत्पन्न: ${lead.income}\n🌍 शहर: ${lead.city}\n📉 रक्कम: ${lead.amount}`;
   await sendWhatsAppMessage(ADMIN_PHONE, msg);
+};
+
+// ✅ Loan Expert AI Agent Logic
+const processLoanAgentChat = async (phone, userText) => {
+  // Initialize session if not exists
+  if (!userSessions[phone]) {
+    userSessions[phone] = {
+      history: [],
+      leadData: { phone, loanType: null, income: null, city: null, amount: null, name: null },
+      isCompleted: false
+    };
+  }
+
+  const session = userSessions[phone];
+  if (session.isCompleted) return;
+
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+    // System instruction for Loan Expert Persona
+    const systemInstruction = `
+    You are a professional, polite, and friendly Marathi-speaking Loan Expert / DSA Agent for "LoanHelpline". 
+    Your goal is to converse naturally with the customer and collect 5 key pieces of information:
+    1. Loan Type (Home Loan, Personal Loan, Transfer Your Loan, Business Loan, Mortgage Loan, Industrial Property Loan, Commercial Property Loan)
+    2. Monthly Income (मासिक उत्पन्न)
+    3. City / Location (शहर/गाव)
+    4. Required Loan Amount (हवी असलेली लोन रक्कम)
+    5. Customer's Name (ग्राहकाचे नाव)
+
+    Current collected data so far:
+    - Loan Type: ${session.leadData.loanType || 'Missing'}
+    - Income: ${session.leadData.income || 'Missing'}
+    - City: ${session.leadData.city || 'Missing'}
+    - Amount: ${session.leadData.amount || 'Missing'}
+    - Name: ${session.leadData.name || 'Missing'}
+
+    Instructions:
+    - Reply in friendly Marathi like a human loan consultant.
+    - Ask for the missing details naturally, one or two at a time if needed, without sounding robotic.
+    - If all 5 details are collected, output a JSON block at the very end of your response in this exact format:
+      JSON_DATA: {"loanType": "...", "income": "...", "city": "...", "amount": "...", "name": "..."}
+      And give a warm concluding message thanking them and telling them our executive will call soon.
+    `;
+
+    // Build chat session
+    const chat = model.startChat({
+      history: session.history,
+      systemInstruction: systemInstruction,
+    });
+
+    const result = await chat.sendMessage(userText);
+    const responseText = await result.response.text();
+
+    // Save history
+    session.history.push({ role: 'user', parts: [{ text: userText }] });
+    session.history.push({ role: 'model', parts: [{ text: responseText }] });
+
+    // Check if AI extracted all data via JSON block
+    const jsonMatch = responseText.match(/JSON_DATA:\s*({[\s\S]*?})/);
+    let cleanReply = responseText;
+
+    if (jsonMatch) {
+      try {
+        const extracted = JSON.parse(jsonMatch[1]);
+        session.leadData.loanType = extracted.loanType || session.leadData.loanType;
+        session.leadData.income = extracted.income || session.leadData.income;
+        session.leadData.city = extracted.city || session.leadData.city;
+        session.leadData.amount = extracted.amount || session.leadData.amount;
+        session.leadData.name = extracted.name || session.leadData.name;
+
+        // Clean JSON from message sent to user
+        cleanReply = responseText.replace(/JSON_DATA:\s*({[\s\S]*?})/, '').trim();
+
+        // Check if everything is filled
+        if (session.leadData.loanType && session.leadData.income && session.leadData.city && session.leadData.amount && session.leadData.name) {
+          session.isCompleted = true;
+          await saveLeadToSheet(session.leadData);
+          await notifyAdmin(session.leadData);
+          delete userSessions[phone]; // Clear session after completion
+        }
+      } catch (e) {
+        console.error('JSON Parse Error:', e);
+      }
+    }
+
+    await sendWhatsAppMessage(phone, cleanReply);
+
+  } catch (error) {
+    console.error('❌ Loan Agent AI Error:', error);
+    await sendWhatsAppMessage(phone, 'माஃப் करा, तांत्रिक अडचणीमुळे संपर्क साधण्यात अडचण येत आहे. कृपया पुन्हा प्रयत्न करा.');
+  }
 };
 
 // ✅ Webhook: POST Handler
@@ -126,7 +186,7 @@ app.post('/webhook', async (req, res) => {
   if (!message) return res.sendStatus(200);
 
   const phone = message.from;
-  let text = message.text?.body?.trim();
+  const text = message.text?.body?.trim();
   if (!text) return res.sendStatus(200);
 
   // 🛑 Block blacklisted numbers
@@ -135,59 +195,9 @@ app.post('/webhook', async (req, res) => {
     return res.sendStatus(200);
   }
 
-  const user = userState[phone] || { step: 0, phone };
+  // Pass message to Loan Expert AI Agent
+  await processLoanAgentChat(phone, text);
 
-  // 🤖 step 1 साठी Gemini AI द्वारे इनपुट तपासा
-  if (user.step === 1) {
-    text = await parseInputWithGemini(text, 1);
-  }
-
-  switch (user.step) {
-    case 0:
-      await sendWhatsAppMessage(
-        phone,
-        `Loan साठी क्रमांक टाका:\n1️⃣ Home Loan\n2️⃣ Personal Loan\n3️⃣ Transfer Your Loan\n4️⃣ Business Loan\n5️⃣ Mortgage Loan\n6️⃣ Industrial Property Loan\n7️⃣ Commercial Property Loan\n\nकृपया फक्त क्रमांक टाका. (उदा: 1)`
-      );
-      user.step = 1;
-      break;
-
-    case 1:
-      user.loanType = loanTypes[text];
-      if (!user.loanType) {
-        return await sendWhatsAppMessage(phone, '❌ चुकीचा पर्याय. कृपया 1 ते 7 मधील क्रमांक टाका.');
-      }
-      await sendWhatsAppMessage(phone, `✅ आपण निवडलं आहे: 🔁 ${user.loanType}\n📝 Eligibility साठी माहिती पाठवा:\n- मासिक उत्पन्न (उदा: ₹30000)`);
-      user.step = 2;
-      break;
-
-    case 2:
-      user.income = text;
-      await sendWhatsAppMessage(phone, '🌍 तुमचं शहर/गाव सांगा (उदा: Pune)');
-      user.step = 3;
-      break;
-
-    case 3:
-      user.city = text;
-      await sendWhatsAppMessage(phone, '💰 तुम्हाला किती लोन हवा आहे? (उदा: ₹15 लाख)');
-      user.step = 4;
-      break;
-
-    case 4:
-      user.amount = text;
-      await sendWhatsAppMessage(phone, '😇 नाव सांगा (उदा: Rahul Patil)');
-      user.step = 5;
-      break;
-
-    case 5:
-      user.name = text;
-      await sendWhatsAppMessage(phone, `🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केला आहे.\nआमचे प्रतिनिधी लवकरच संपर्क करतील.`);
-      await notifyAdmin(user);
-      await saveLeadToSheet(user); 
-      delete userState[phone];
-      break;
-  }
-
-  userState[phone] = user;
   res.sendStatus(200);
 });
 
@@ -208,10 +218,10 @@ app.get('/webhook', (req, res) => {
 
 // ✅ Root Route
 app.get('/', (req, res) => {
-  res.send('✅ LoanHelpline Bot (Gemini AI Enabled) चालू आहे');
+  res.send('✅ LoanHelpline Bot (Loan Expert AI Agent) चालू आहे');
 });
 
 // ✅ Start Server
 app.listen(port, () => {
-  console.log(`✅ LoanHelpline Bot (Gemini AI Enabled) चालू आहे पोर्ट ${port}`);
+  console.log(`✅ LoanHelpline Bot (Loan Expert AI Agent) चालू आहे पोर्ट ${port}`);
 });
