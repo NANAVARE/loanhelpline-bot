@@ -2,6 +2,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const { google } = require('googleapis');
 const axios = require('axios');
+const OpenAI = require('openai'); // ✅ OpenAI लायब्ररी जोडली
 const app = express();
 const port = process.env.PORT || 10000;
 
@@ -12,6 +13,11 @@ const WHATSAPP_API_URL = `https://graph.facebook.com/v18.0/${process.env.WHATSAP
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const SHEET_ID = process.env.SHEET_ID;
 const ADMIN_PHONE = '918329569608';
+
+// ✅ OpenAI Configuration
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 // ✅ Google Sheets Auth
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
@@ -60,6 +66,29 @@ const sendWhatsAppMessage = async (phone, message) => {
   }
 };
 
+// ✅ AI Agent: Smart Text Analysis (युजरचे इनपुट समजून घेण्यासाठी)
+const parseInputWithAI = async (userText, step) => {
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: `You are an intelligent assistant for a Loan DSA agency chatbot. 
+          Analyze the user's response based on the current step (${step}). 
+          If step 1, extract the loan type number (1 to 7). If no direct number, match it to the closest loan type.
+          Return only the extracted core value or number.`
+        },
+        { role: 'user', content: userText }
+      ],
+    });
+    return response.choices[0].message.content.trim();
+  } catch (error) {
+    console.error('❌ AI Error:', error);
+    return userText; // एरर आल्यास मूळ टेक्स्ट रिटर्न करा
+  }
+};
+
 // ✅ Save Lead to Google Sheet
 const saveLeadToSheet = async (lead) => {
   try {
@@ -76,7 +105,7 @@ const saveLeadToSheet = async (lead) => {
       lead.loanType,
       lead.amount,
       'New Lead',
-      'WhatsApp Bot'
+      'WhatsApp Bot + AI'
     ]];
 
     const result = await sheets.spreadsheets.values.append({
@@ -94,7 +123,7 @@ const saveLeadToSheet = async (lead) => {
 
 // ✅ Notify Admin
 const notifyAdmin = async (lead) => {
-  const msg = `⚠️ नवीन लोन लीड:\n👤 नाव: ${lead.name}\n📞 नंबर: ${lead.phone}\n🏦 Loan Type: ${lead.loanType}\n💰 उत्पन्न: ${lead.income}\n🌍 शहर: ${lead.city}\n📉 रक्कम: ${lead.amount}`;
+  const msg = `⚠️ नवीन लोन लीड (AI Enabled):\n👤 नाव: ${lead.name}\n📞 नंबर: ${lead.phone}\n🏦 Loan Type: ${lead.loanType}\n💰 उत्पन्न: ${lead.income}\n🌍 शहर: ${lead.city}\n📉 रक्कम: ${lead.amount}`;
   await sendWhatsAppMessage(ADMIN_PHONE, msg);
 };
 
@@ -104,7 +133,7 @@ app.post('/webhook', async (req, res) => {
   if (!message) return res.sendStatus(200);
 
   const phone = message.from;
-  const text = message.text?.body?.trim();
+  let text = message.text?.body?.trim();
   if (!text) return res.sendStatus(200);
 
   // 🛑 Block blacklisted numbers
@@ -114,6 +143,11 @@ app.post('/webhook', async (req, res) => {
   }
 
   const user = userState[phone] || { step: 0, phone };
+
+  // 🤖 step 1 साठी AI द्वारे इनपुट तपासा
+  if (user.step === 1) {
+    text = await parseInputWithAI(text, 1);
+  }
 
   switch (user.step) {
     case 0:
@@ -155,7 +189,7 @@ app.post('/webhook', async (req, res) => {
       user.name = text;
       await sendWhatsAppMessage(phone, `🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केला आहे.\nआमचे प्रतिनिधी लवकरच संपर्क करतील.`);
       await notifyAdmin(user);
-      await saveLeadToSheet(user); // ✅ Always save
+      await saveLeadToSheet(user); // ✅ Sheet मध्ये सेव्ह करणे
       delete userState[phone];
       break;
   }
@@ -181,10 +215,10 @@ app.get('/webhook', (req, res) => {
 
 // ✅ Root Route
 app.get('/', (req, res) => {
-  res.send('✅ LoanHelpline Bot चालू आहे');
+  res.send('✅ LoanHelpline Bot (AI Enabled) चालू आहे');
 });
 
 // ✅ Start Server
 app.listen(port, () => {
-  console.log(`✅ LoanHelpline Bot चालू आहे पोर्ट ${port}`);
+  console.log(`✅ LoanHelpline Bot (AI Enabled) चालू आहे पोर्ट ${port}`);
 });
