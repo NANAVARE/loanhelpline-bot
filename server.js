@@ -2,7 +2,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const { google } = require('googleapis');
 const axios = require('axios');
-const OpenAI = require('openai'); // ✅ OpenAI लायब्ररी जोडली
+const { GoogleGenerativeAI } = require('@google/generative-ai'); // ✅ Gemini API लायब्ररी जोडली
 const app = express();
 const port = process.env.PORT || 10000;
 
@@ -14,10 +14,8 @@ const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const SHEET_ID = process.env.SHEET_ID;
 const ADMIN_PHONE = '918329569608';
 
-// ✅ OpenAI Configuration
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// ✅ Gemini AI Configuration
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // ✅ Google Sheets Auth
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
@@ -66,25 +64,20 @@ const sendWhatsAppMessage = async (phone, message) => {
   }
 };
 
-// ✅ AI Agent: Smart Text Analysis (युजरचे इनपुट समजून घेण्यासाठी)
-const parseInputWithAI = async (userText, step) => {
+// ✅ Gemini AI Agent: Smart Text Analysis (युजरचे इनपुट समजून घेण्यासाठी)
+const parseInputWithGemini = async (userText, step) => {
   try {
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: `You are an intelligent assistant for a Loan DSA agency chatbot. 
-          Analyze the user's response based on the current step (${step}). 
-          If step 1, extract the loan type number (1 to 7). If no direct number, match it to the closest loan type.
-          Return only the extracted core value or number.`
-        },
-        { role: 'user', content: userText }
-      ],
-    });
-    return response.choices[0].message.content.trim();
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const prompt = `You are an intelligent assistant for a Loan DSA agency chatbot. 
+    Analyze the user's response based on the current step (${step}). 
+    If step 1, extract the loan type number (1 to 7). If no direct number, match it to the closest loan type.
+    Return only the extracted core value or number, nothing else. User input: "${userText}"`;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    return response.text().trim();
   } catch (error) {
-    console.error('❌ AI Error:', error);
+    console.error('❌ Gemini AI Error:', error);
     return userText; // एरर आल्यास मूळ टेक्स्ट रिटर्न करा
   }
 };
@@ -105,7 +98,7 @@ const saveLeadToSheet = async (lead) => {
       lead.loanType,
       lead.amount,
       'New Lead',
-      'WhatsApp Bot + AI'
+      'WhatsApp Bot + Gemini AI'
     ]];
 
     const result = await sheets.spreadsheets.values.append({
@@ -123,7 +116,7 @@ const saveLeadToSheet = async (lead) => {
 
 // ✅ Notify Admin
 const notifyAdmin = async (lead) => {
-  const msg = `⚠️ नवीन लोन लीड (AI Enabled):\n👤 नाव: ${lead.name}\n📞 नंबर: ${lead.phone}\n🏦 Loan Type: ${lead.loanType}\n💰 उत्पन्न: ${lead.income}\n🌍 शहर: ${lead.city}\n📉 रक्कम: ${lead.amount}`;
+  const msg = `⚠️ नवीन लोन लीड (Gemini AI Enabled):\n👤 नाव: ${lead.name}\n📞 नंबर: ${lead.phone}\n🏦 Loan Type: ${lead.loanType}\n💰 उत्पन्न: ${lead.income}\n🌍 शहर: ${lead.city}\n📉 रक्कम: ${lead.amount}`;
   await sendWhatsAppMessage(ADMIN_PHONE, msg);
 };
 
@@ -144,9 +137,9 @@ app.post('/webhook', async (req, res) => {
 
   const user = userState[phone] || { step: 0, phone };
 
-  // 🤖 step 1 साठी AI द्वारे इनपुट तपासा
+  // 🤖 step 1 साठी Gemini AI द्वारे इनपुट तपासा
   if (user.step === 1) {
-    text = await parseInputWithAI(text, 1);
+    text = await parseInputWithGemini(text, 1);
   }
 
   switch (user.step) {
@@ -189,7 +182,7 @@ app.post('/webhook', async (req, res) => {
       user.name = text;
       await sendWhatsAppMessage(phone, `🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केला आहे.\nआमचे प्रतिनिधी लवकरच संपर्क करतील.`);
       await notifyAdmin(user);
-      await saveLeadToSheet(user); // ✅ Sheet मध्ये सेव्ह करणे
+      await saveLeadToSheet(user); // ✅ Google Sheet मध्ये सेव्ह करणे
       delete userState[phone];
       break;
   }
@@ -215,10 +208,10 @@ app.get('/webhook', (req, res) => {
 
 // ✅ Root Route
 app.get('/', (req, res) => {
-  res.send('✅ LoanHelpline Bot (AI Enabled) चालू आहे');
+  res.send('✅ LoanHelpline Bot (Gemini AI Enabled) चालू आहे');
 });
 
 // ✅ Start Server
 app.listen(port, () => {
-  console.log(`✅ LoanHelpline Bot (AI Enabled) चालू आहे पोर्ट ${port}`);
+  console.log(`✅ LoanHelpline Bot (Gemini AI Enabled) चालू आहे पोर्ट ${port}`);
 });
