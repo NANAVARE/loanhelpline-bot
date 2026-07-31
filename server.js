@@ -2,7 +2,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const { google } = require('googleapis');
 const axios = require('axios');
-const { GoogleGenerativeAI } = require('@google/generative-ai'); // ✅ Gemini API लायब्ररी
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const app = express();
 const port = process.env.PORT || 10000;
 
@@ -64,10 +64,10 @@ const sendWhatsAppMessage = async (phone, message) => {
   }
 };
 
-// ✅ Gemini AI Agent: Smart Text Analysis (Updated with gemini-pro)
+// ✅ Gemini AI Agent: Smart Text Analysis (Updated to gemini-2.5-flash)
 const parseInputWithGemini = async (userText, step) => {
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-pro' }); // ✅ अचूक मॉडेल अपडेट केले
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' }); // ✅ नवीन स्टेबल मॉडेल
     const prompt = `You are an intelligent assistant for a Loan DSA agency chatbot. 
     Analyze the user's response based on the current step (${step}). 
     If step 1, extract the loan type number (1 to 7). If no direct number, match it to the closest loan type.
@@ -78,7 +78,7 @@ const parseInputWithGemini = async (userText, step) => {
     return response.text().trim();
   } catch (error) {
     console.error('❌ Gemini AI Error:', error);
-    return userText; // एरर आल्यास मूळ टेक्स्ट रिटर्न करा
+    return userText; 
   }
 };
 
@@ -182,7 +182,7 @@ app.post('/webhook', async (req, res) => {
       user.name = text;
       await sendWhatsAppMessage(phone, `🎉 धन्यवाद! तुमचं लोन अर्ज आम्ही प्राप्त केला आहे.\nआमचे प्रतिनिधी लवकरच संपर्क करतील.`);
       await notifyAdmin(user);
-      await saveLeadToSheet(user); // ✅ Google Sheet मध्ये सेव्ह करणे
+      await saveLeadToSheet(user); 
       delete userState[phone];
       break;
   }
