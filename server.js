@@ -89,12 +89,11 @@ const notifyAdmin = async (lead) => {
   await sendWhatsAppMessage(ADMIN_PHONE, msg);
 };
 
-// ✅ Loan Expert AI Agent Logic
+// ✅ Loan Expert AI Agent Logic (Using direct generateContent to avoid 400 errors)
 const processLoanAgentChat = async (phone, userText) => {
-  // Initialize session if not exists
   if (!userSessions[phone]) {
     userSessions[phone] = {
-      history: [],
+      historyText: "",
       leadData: { phone, loanType: null, income: null, city: null, amount: null, name: null },
       isCompleted: false
     };
@@ -106,8 +105,7 @@ const processLoanAgentChat = async (phone, userText) => {
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
-    // System instruction for Loan Expert Persona
-    const systemInstruction = `
+    const fullPrompt = `
     You are a professional, polite, and friendly Marathi-speaking Loan Expert / DSA Agent for "LoanHelpline". 
     Your goal is to converse naturally with the customer and collect 5 key pieces of information:
     1. Loan Type (Home Loan, Personal Loan, Transfer Your Loan, Business Loan, Mortgage Loan, Industrial Property Loan, Commercial Property Loan)
@@ -123,6 +121,11 @@ const processLoanAgentChat = async (phone, userText) => {
     - Amount: ${session.leadData.amount || 'Missing'}
     - Name: ${session.leadData.name || 'Missing'}
 
+    Previous Conversation History:
+    ${session.historyText}
+
+    Customer's Latest Message: "${userText}"
+
     Instructions:
     - Reply in friendly Marathi like a human loan consultant.
     - Ask for the missing details naturally, one or two at a time if needed, without sounding robotic.
@@ -131,18 +134,11 @@ const processLoanAgentChat = async (phone, userText) => {
       And give a warm concluding message thanking them and telling them our executive will call soon.
     `;
 
-    // Build chat session
-    const chat = model.startChat({
-      history: session.history,
-      systemInstruction: systemInstruction,
-    });
-
-    const result = await chat.sendMessage(userText);
+    const result = await model.generateContent(fullPrompt);
     const responseText = await result.response.text();
 
-    // Save history
-    session.history.push({ role: 'user', parts: [{ text: userText }] });
-    session.history.push({ role: 'model', parts: [{ text: responseText }] });
+    // Update history text
+    session.historyText += `\nUser: ${userText}\nAgent: ${responseText}`;
 
     // Check if AI extracted all data via JSON block
     const jsonMatch = responseText.match(/JSON_DATA:\s*({[\s\S]*?})/);
@@ -157,15 +153,13 @@ const processLoanAgentChat = async (phone, userText) => {
         session.leadData.amount = extracted.amount || session.leadData.amount;
         session.leadData.name = extracted.name || session.leadData.name;
 
-        // Clean JSON from message sent to user
         cleanReply = responseText.replace(/JSON_DATA:\s*({[\s\S]*?})/, '').trim();
 
-        // Check if everything is filled
         if (session.leadData.loanType && session.leadData.income && session.leadData.city && session.leadData.amount && session.leadData.name) {
           session.isCompleted = true;
           await saveLeadToSheet(session.leadData);
           await notifyAdmin(session.leadData);
-          delete userSessions[phone]; // Clear session after completion
+          delete userSessions[phone];
         }
       } catch (e) {
         console.error('JSON Parse Error:', e);
@@ -176,7 +170,7 @@ const processLoanAgentChat = async (phone, userText) => {
 
   } catch (error) {
     console.error('❌ Loan Agent AI Error:', error);
-    await sendWhatsAppMessage(phone, 'माஃப் करा, तांत्रिक अडचणीमुळे संपर्क साधण्यात अडचण येत आहे. कृपया पुन्हा प्रयत्न करा.');
+    await sendWhatsAppMessage(phone, 'माफ करा, तांत्रिक अडचणीमुळे संपर्क साधण्यात अडचण येत आहे. कृपया पुन्हा प्रयत्न करा.');
   }
 };
 
@@ -189,15 +183,12 @@ app.post('/webhook', async (req, res) => {
   const text = message.text?.body?.trim();
   if (!text) return res.sendStatus(200);
 
-  // 🛑 Block blacklisted numbers
   if (blacklistedNumbers.includes(phone)) {
     console.log(`⚠️ ब्लॅकलिस्टेड नंबर (${phone}) – मेसेज ब्लॉक केला.`);
     return res.sendStatus(200);
   }
 
-  // Pass message to Loan Expert AI Agent
   await processLoanAgentChat(phone, text);
-
   res.sendStatus(200);
 });
 
