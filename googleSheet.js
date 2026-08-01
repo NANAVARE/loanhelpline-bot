@@ -14,27 +14,22 @@ const sheets = google.sheets({ version: 'v4', auth });
 const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
 const TAB_NAME = process.env.SHEET_TAB_NAME || 'Sheet1';
 
-/**
- * गुगल शीटमध्ये अचूक क्रमाने डेटा सेव्ह करणे:
- * Column A: Timestamp
- * Column B: Name (युजरचे नाव)
- * Column C: Phone (मोबाईल नंबर)
- * Column D to G: City, Income, Loan Type, Loan Amount (मोकळे सोडलेले)
- * Column H: Status ('New Lead')
- * Column I: Source ('WhatsApp Bot')
- */
 async function appendToSheet(name, phone, msg_body) {
   try {
+    // Column A: Timestamp
+    // Column B: Name (नाव)
+    // Column C: Phone (मोबाईल नंबर)
+    // Column D: Message (मेसेज)
     const values = [[
-      new Date().toLocaleString(), 
-      name, 
-      phone, 
-      '', // City
-      '', // Income
-      '', // Loan Type
-      '', // Loan Amount
-      'New Lead', 
-      'WhatsApp Bot'
+      new Date().toLocaleString(), // Column A
+      name,                        // Column B
+      phone,                       // Column C
+      msg_body,                    // Column D
+      '',                          // Column E (Income)
+      '',                          // Column F (Loan Type)
+      '',                          // Column G (Loan Amount)
+      'New Lead',                  // Column H
+      'WhatsApp Bot'               // Column I
     ]];
 
     await sheets.spreadsheets.values.append({
@@ -45,7 +40,7 @@ async function appendToSheet(name, phone, msg_body) {
         values: values,
       },
     });
-    console.log('✅ Google Sheet Updated Correctly');
+    console.log('✅ Google Sheet Updated with correct columns');
   } catch (error) {
     console.error('❌ Error writing to Google Sheet:', error);
   }
