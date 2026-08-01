@@ -11,7 +11,7 @@ app.use(bodyParser.json());
 // ✅ Constants
 const WHATSAPP_API_URL = `https://graph.facebook.com/v18.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
-const SHEET_ID = process.env.GOOGLE_SHEET_ID; // तुमच्या Render व्हेरिएबल नुसार
+const SHEET_ID = process.env.GOOGLE_SHEET_ID;
 const ADMIN_PHONE = '918329569608';
 
 // ✅ Gemini AI Configuration
@@ -51,8 +51,8 @@ const sendWhatsAppMessage = async (phone, message) => {
   }
 };
 
-// ✅ Save Lead to Google Sheet
-const saveLeadToSheet = async (lead) => {
+// ✅ Instant Lead Saving to Google Sheet (मेसेज येताच त्वरित सेव्ह होईल)
+const saveInitialLeadToSheet = async (phone, senderName) => {
   try {
     const client = await auth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: client });
@@ -60,43 +60,46 @@ const saveLeadToSheet = async (lead) => {
 
     const values = [[
       now,
-      lead.name || 'Not Provided',
-      lead.phone,
-      lead.city || 'Not Provided',
-      lead.income || 'Not Provided',
-      lead.loanType || 'Not Provided',
-      lead.amount || 'Not Provided',
-      'New Lead',
+      senderName || 'WhatsApp User',
+      phone,
+      'Pending', // City
+      'Pending', // Income
+      'Pending', // Loan Type
+      'Pending', // Amount
+      'Incomplete / New',
       'Loan Expert AI Agent'
     ]];
 
-    await sheets.spreadsheets.values.append({
+    const response = await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
       range: 'Sheet1!A2',
       valueInputOption: 'USER_ENTERED',
       requestBody: { values },
     });
 
-    console.log('✅ Lead successfully saved to Google Sheet');
+    console.log('✅ Initial Lead instantly saved to Google Sheet');
   } catch (err) {
-    console.error('❌ Error saving lead to Google Sheet:', err.response?.data || err.message);
+    console.error('❌ Error saving initial lead:', err.response?.data || err.message);
   }
 };
 
 // ✅ Notify Admin
 const notifyAdmin = async (lead) => {
-  const msg = `⚠️ नवीन लोन लीड (Loan Expert AI):\n👤 नाव: ${lead.name}\n📞 नंबर: ${lead.phone}\n🏦 Loan Type: ${lead.loanType}\n💰 उत्पन्न: ${lead.income}\n🌍 शहर: ${lead.city}\n📉 रक्कम: ${lead.amount}`;
+  const msg = `⚠️ नवीन पूर्ण झालेली लोन लीड (Loan Expert AI):\n👤 नाव: ${lead.name}\n📞 नंबर: ${lead.phone}\n🏦 Loan Type: ${lead.loanType}\n💰 उत्पन्न: ${lead.income}\n🌍 शहर: ${lead.city}\n📉 रक्कम: ${lead.amount}`;
   await sendWhatsAppMessage(ADMIN_PHONE, msg);
 };
 
 // ✅ Loan Expert AI Agent Logic
-const processLoanAgentChat = async (phone, userText) => {
+const processLoanAgentChat = async (phone, userText, senderName) => {
   if (!userSessions[phone]) {
     userSessions[phone] = {
       historyText: "",
-      leadData: { phone, loanType: null, income: null, city: null, amount: null, name: null },
+      leadData: { phone, loanType: null, income: null, city: null, amount: null, name: senderName },
       isCompleted: false
     };
+    
+    // युजरचा मेसेज येताच तात्काळ शीटमध्ये नाव आणि नंबर सेव्ह करून घेणे
+    await saveInitialLeadToSheet(phone, senderName);
   }
 
   const session = userSessions[phone];
@@ -155,7 +158,8 @@ const processLoanAgentChat = async (phone, userText) => {
 
         if (session.leadData.loanType && session.leadData.income && session.leadData.city && session.leadData.amount && session.leadData.name) {
           session.isCompleted = true;
-          await saveLeadToSheet(session.leadData);
+          // सर्व माहिती पूर्ण झाल्यावर फायनल लीड शीटमध्ये सेव्ह करणे
+          await saveInitialLeadToSheet(phone, session.leadData.name); 
           await notifyAdmin(session.leadData);
           delete userSessions[phone];
         }
@@ -174,25 +178,32 @@ const processLoanAgentChat = async (phone, userText) => {
 
 // ✅ Webhook: POST Handler
 app.post('/webhook', async (req, res) => {
-  const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+  const value = req.body.entry?.[0]?.changes?.[0]?.value;
+  const message = value?.messages?.[0];
   if (!message) return res.sendStatus(200);
 
   const phone = message.from;
   const text = message.text?.body?.trim();
   if (!text) return res.sendStatus(200);
 
+  // युजरचे WhatsApp नाव मिळवणे
+  let senderName = 'WhatsApp User';
+  if (value.contacts && value.contacts[0] && value.contacts[0].profile) {
+    senderName = value.contacts[0].profile.name || 'WhatsApp User';
+  }
+
   if (blacklistedNumbers.includes(phone)) {
     console.log(`⚠️ ब्लॅकलिस्टेड नंबर (${phone}) – मेसेज ब्लॉक केला.`);
     return res.sendStatus(200);
   }
 
-  await processLoanAgentChat(phone, text);
+  await processLoanAgentChat(phone, text, senderName);
   res.sendStatus(200);
 });
 
 // ✅ Webhook GET Handler (Verification)
 app.get('/webhook', (req, res) => {
-  const verify_token = process.env.VERIFY_TOKEN; // तुमच्या Render व्हेरिएबल नुसार
+  const verify_token = process.env.VERIFY_TOKEN;
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
@@ -207,10 +218,10 @@ app.get('/webhook', (req, res) => {
 
 // ✅ Root Route
 app.get('/', (req, res) => {
-  res.send('✅ LoanHelpline Bot (Loan Expert AI Agent) चालू आहे');
+  res.send('✅ LoanHelpline Bot (Instant Lead Saving) चालू आहे');
 });
 
 // ✅ Start Server
 app.listen(port, () => {
-  console.log(`✅ LoanHelpline Bot (Loan Expert AI Agent) चालू आहे पोर्ट ${port}`);
+  console.log(`✅ LoanHelpline Bot चालू आहे पोर्ट ${port}`);
 });
