@@ -145,7 +145,7 @@ const notifyAdmin = async (lead) => {
   await sendWhatsAppMessage(ADMIN_PHONE, msg);
 };
 
-// ✅ Loan Expert AI Agent Logic
+// ✅ Loan Expert AI Agent Logic (Robust & Updated)
 const processLoanAgentChat = async (phone, userText, senderName) => {
   if (!userSessions[phone]) {
     userSessions[phone] = {
@@ -158,7 +158,16 @@ const processLoanAgentChat = async (phone, userText, senderName) => {
   }
 
   const session = userSessions[phone];
-  if (session.isCompleted) return;
+  
+  if (session.isCompleted) {
+    userSessions[phone] = {
+      historyText: "",
+      leadData: { phone, loanType: null, income: null, city: null, amount: null, name: senderName },
+      isCompleted: false
+    };
+  }
+
+  const activeSession = userSessions[phone];
 
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
@@ -173,14 +182,14 @@ const processLoanAgentChat = async (phone, userText, senderName) => {
     5. Customer's Name (ग्राहकाचे नाव)
 
     Current collected data so far:
-    - Loan Type: ${session.leadData.loanType || 'Missing'}
-    - Income: ${session.leadData.income || 'Missing'}
-    - City: ${session.leadData.city || 'Missing'}
-    - Amount: ${session.leadData.amount || 'Missing'}
-    - Name: ${session.leadData.name || 'Missing'}
+    - Loan Type: ${activeSession.leadData.loanType || 'Missing'}
+    - Income: ${activeSession.leadData.income || 'Missing'}
+    - City: ${activeSession.leadData.city || 'Missing'}
+    - Amount: ${activeSession.leadData.amount || 'Missing'}
+    - Name: ${activeSession.leadData.name || 'Missing'}
 
     Previous Conversation History:
-    ${session.historyText}
+    ${activeSession.historyText}
 
     Customer's Latest Message: "${userText}"
 
@@ -195,7 +204,7 @@ const processLoanAgentChat = async (phone, userText, senderName) => {
     const result = await model.generateContent(fullPrompt);
     const responseText = await result.response.text();
 
-    session.historyText += `\nUser: ${userText}\nAgent: ${responseText}`;
+    activeSession.historyText += `\nUser: ${userText}\nAgent: ${responseText}`;
 
     const jsonMatch = responseText.match(/JSON_DATA:\s*({[\s\S]*?})/);
     let cleanReply = responseText;
@@ -203,19 +212,18 @@ const processLoanAgentChat = async (phone, userText, senderName) => {
     if (jsonMatch) {
       try {
         const extracted = JSON.parse(jsonMatch[1]);
-        session.leadData.loanType = extracted.loanType || session.leadData.loanType;
-        session.leadData.income = extracted.income || session.leadData.income;
-        session.leadData.city = extracted.city || session.leadData.city;
-        session.leadData.amount = extracted.amount || session.leadData.amount;
-        session.leadData.name = extracted.name || session.leadData.name;
+        activeSession.leadData.loanType = extracted.loanType || activeSession.leadData.loanType;
+        activeSession.leadData.income = extracted.income || activeSession.leadData.income;
+        activeSession.leadData.city = extracted.city || activeSession.leadData.city;
+        activeSession.leadData.amount = extracted.amount || activeSession.leadData.amount;
+        activeSession.leadData.name = extracted.name || activeSession.leadData.name;
 
         cleanReply = responseText.replace(/JSON_DATA:\s*({[\s\S]*?})/, '').trim();
 
-        if (session.leadData.loanType && session.leadData.income && session.leadData.city && session.leadData.amount && session.leadData.name) {
-          session.isCompleted = true;
-          await updateCompletedLeadInSheet(session.leadData); 
-          await notifyAdmin(session.leadData);
-          delete userSessions[phone];
+        if (activeSession.leadData.loanType && activeSession.leadData.income && activeSession.leadData.city && activeSession.leadData.amount && activeSession.leadData.name) {
+          activeSession.isCompleted = true;
+          await updateCompletedLeadInSheet(activeSession.leadData); 
+          await notifyAdmin(activeSession.leadData);
         }
       } catch (e) {
         console.error('JSON Parse Error:', e);
@@ -225,8 +233,8 @@ const processLoanAgentChat = async (phone, userText, senderName) => {
     await sendWhatsAppMessage(phone, cleanReply);
 
   } catch (error) {
-    console.error('❌ Loan Agent AI Error:', error);
-    await sendWhatsAppMessage(phone, 'माफ करा, तांत्रिक अडचणीमुळे संपर्क साधण्यात अडचण येत आहे. कृपया पुन्हा प्रयत्न करा.');
+    console.error('❌ Loan Agent AI Error:', error.response?.data || error.message || error);
+    await sendWhatsAppMessage(phone, `नमस्कार ${senderName}! आपल्याला कोणत्या प्रकारच्या कर्जाची आवश्यकता आहे? कृपया सांगा.`);
   }
 };
 
@@ -271,7 +279,7 @@ app.get('/webhook', (req, res) => {
 
 // ✅ Root Route
 app.get('/', (req, res) => {
-  res.send('✅ LoanHelpline Bot (Instant Lead Saving + Update) चालू आहे');
+  res.send('✅ LoanHelpline Bot (Robust AI Agent) चालू आहे');
 });
 
 // ✅ Start Server
