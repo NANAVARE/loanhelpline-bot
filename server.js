@@ -1,7 +1,7 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
-const { GoogleGenAI } = require('@google/genai'); // Gemini AI SDK
+const { GoogleGenAI } = require('@google/genai');
 const { appendToSheet } = require('./googleSheet');
 
 const app = express();
@@ -12,7 +12,6 @@ const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'loanhelpline_secure_token';
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 
-// Gemini AI सेट अप (Env मधील GEMINI_API_KEY वापरून)
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // 1. Webhook Verification (GET)
@@ -79,10 +78,10 @@ app.post('/webhook', async (req, res) => {
             const msg_body = messageObj.text ? messageObj.text.body : '';
             console.log(`Received message: ${msg_body} from ${phone} (${senderName})`);
             
-            // 📊 गुगल शीटमध्ये डेटा सेव्ह करणे (Name, Phone, Message)
+            // गुगल शीटमध्ये डेटा सेव्ह करणे
             await appendToSheet(senderName, phone, msg_body);
 
-            // 🤖 Gemini AI द्वारे स्मार्ट आणि डायनॅमिक रिप्लाय तयार करणे
+            // Gemini AI द्वारे स्मार्ट रिप्लाय तयार करणे
             let aiReplyText = '';
             try {
               const prompt = `तू 'LoanHelpline Pune' चा एक अत्यंत हुशार आणि polite लोन अडव्हायझर एआय असिस्टंट आहेस. 
@@ -96,12 +95,13 @@ app.post('/webhook', async (req, res) => {
                 contents: prompt,
               });
 
-              aiReplyText = response.text || `नमस्कार ${senderName}! LoanHelpline मध्ये आपले स्वागत आहे. आपल्याला कोणत्या प्रकारचे लोन हवे आहे? (उदा. पर्सनल लोन, होम लोन किंवा बिजनेस लोन)`;
-            } else {
-              aiReplyText = `नमस्कार ${senderName}! LoanHelpline मध्ये आपले स्वागत आहे. आमचे प्रतिनिधी लवकरच आपल्याशी संपर्क साधतील.`;
+              aiReplyText = response.text || `नमस्कार ${senderName}! LoanHelpline मध्ये आपले स्वागत आहे. आपल्याला कोणत्या प्रकारचे लोन हवे आहे?`;
+            } catch (aiError) {
+              console.error('❌ AI Error:', aiError);
+              aiReplyText = `नमस्कार ${senderName}! LoanHelpline मध्ये आपले स्वागत आहे. आपला मेसेज मिळाला आहे. आमचे प्रतिनिधी लवकरच आपल्याशी संपर्क साधतील.`;
             }
 
-            // WhatsApp वर एआयचा रिप्लाय पाठवणे
+            // WhatsApp वर रिप्लाय पाठवणे
             await sendWhatsAppMessage(phone, aiReplyText);
           }
         }
