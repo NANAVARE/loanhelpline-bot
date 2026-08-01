@@ -51,7 +51,7 @@ const sendWhatsAppMessage = async (phone, message) => {
   }
 };
 
-// ✅ Instant Lead Saving to Google Sheet (मेसेज येताच त्वरित सेव्ह होईल)
+// ✅ १. मेसेज येताच तात्काळ 'Pending' लीड शीटमध्ये सेव्ह करणे (नवीन ओळ जोडणे)
 const saveInitialLeadToSheet = async (phone, senderName) => {
   try {
     const client = await auth.getClient();
@@ -62,15 +62,15 @@ const saveInitialLeadToSheet = async (phone, senderName) => {
       now,
       senderName || 'WhatsApp User',
       phone,
-      'Pending', // City
-      'Pending', // Income
-      'Pending', // Loan Type
-      'Pending', // Amount
+      'Pending', 
+      'Pending', 
+      'Pending', 
+      'Pending', 
       'Incomplete / New',
       'Loan Expert AI Agent'
     ]];
 
-    const response = await sheets.spreadsheets.values.append({
+    await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
       range: 'Sheet1!A2',
       valueInputOption: 'USER_ENTERED',
@@ -80,6 +80,62 @@ const saveInitialLeadToSheet = async (phone, senderName) => {
     console.log('✅ Initial Lead instantly saved to Google Sheet');
   } catch (err) {
     console.error('❌ Error saving initial lead:', err.response?.data || err.message);
+  }
+};
+
+// ✅ २. सर्व माहिती पूर्ण झाल्यावर तीच ओळ (Row) शोधून अचूक अपडेट करणे
+const updateCompletedLeadInSheet = async (lead) => {
+  try {
+    const client = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: 'Sheet1!A:I',
+    });
+
+    const rows = res.data.values;
+    if (!rows) return;
+
+    let rowIndex = -1;
+    for (let i = rows.length - 1; i >= 1; i--) {
+      if (rows[i][2] === lead.phone) { 
+        rowIndex = i + 1; 
+        break;
+      }
+    }
+
+    const now = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+    const updateValues = [
+      now,
+      lead.name || 'Not Provided',
+      lead.phone,
+      lead.city || 'Not Provided',
+      lead.income || 'Not Provided',
+      lead.loanType || 'Not Provided',
+      lead.amount || 'Not Provided',
+      'New Lead', 
+      'Loan Expert AI Agent'
+    ];
+
+    if (rowIndex !== -1) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: `Sheet1!A${rowIndex}:I${rowIndex}`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [updateValues] },
+      });
+      console.log(`✅ Lead row ${rowIndex} successfully updated in Google Sheet`);
+    } else {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: SHEET_ID,
+        range: 'Sheet1!A2',
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [updateValues] },
+      });
+    }
+  } catch (err) {
+    console.error('❌ Error updating lead in Google Sheet:', err.response?.data || err.message);
   }
 };
 
@@ -98,7 +154,6 @@ const processLoanAgentChat = async (phone, userText, senderName) => {
       isCompleted: false
     };
     
-    // युजरचा मेसेज येताच तात्काळ शीटमध्ये नाव आणि नंबर सेव्ह करून घेणे
     await saveInitialLeadToSheet(phone, senderName);
   }
 
@@ -158,8 +213,7 @@ const processLoanAgentChat = async (phone, userText, senderName) => {
 
         if (session.leadData.loanType && session.leadData.income && session.leadData.city && session.leadData.amount && session.leadData.name) {
           session.isCompleted = true;
-          // सर्व माहिती पूर्ण झाल्यावर फायनल लीड शीटमध्ये सेव्ह करणे
-          await saveInitialLeadToSheet(phone, session.leadData.name); 
+          await updateCompletedLeadInSheet(session.leadData); 
           await notifyAdmin(session.leadData);
           delete userSessions[phone];
         }
@@ -186,7 +240,6 @@ app.post('/webhook', async (req, res) => {
   const text = message.text?.body?.trim();
   if (!text) return res.sendStatus(200);
 
-  // युजरचे WhatsApp नाव मिळवणे
   let senderName = 'WhatsApp User';
   if (value.contacts && value.contacts[0] && value.contacts[0].profile) {
     senderName = value.contacts[0].profile.name || 'WhatsApp User';
@@ -218,7 +271,7 @@ app.get('/webhook', (req, res) => {
 
 // ✅ Root Route
 app.get('/', (req, res) => {
-  res.send('✅ LoanHelpline Bot (Instant Lead Saving) चालू आहे');
+  res.send('✅ LoanHelpline Bot (Instant Lead Saving + Update) चालू आहे');
 });
 
 // ✅ Start Server
