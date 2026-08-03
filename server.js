@@ -51,6 +51,14 @@ const sendWhatsAppMessage = async (phone, message) => {
   }
 };
 
+// ✅ डेटा मास्किंग फंक्शन (गुगलकडे मेसेज जाण्यापूर्वी फोन नंबर लपवण्यासाठी)
+const maskUserData = (text) => {
+  if (!text) return text;
+  // भारतीय १० अंकी मोबाईल नंबर शोधून तो [PHONE_HIDDEN] ने बदलणे
+  let maskedText = text.replace(/\b[6-9]\d{9}\b/g, '[PHONE_HIDDEN]');
+  return maskedText;
+};
+
 // ✅ १. मेसेज येताच तात्काळ 'Pending' लीड शीटमध्ये सेव्ह करणे (नवीन ओळ जोडणे)
 const saveInitialLeadToSheet = async (phone, senderName) => {
   try {
@@ -145,7 +153,7 @@ const notifyAdmin = async (lead) => {
   await sendWhatsAppMessage(ADMIN_PHONE, msg);
 };
 
-// ✅ Loan Expert AI Agent Logic (Robust & Updated)
+// ✅ Loan Expert AI Agent Logic (With Data Masking)
 const processLoanAgentChat = async (phone, userText, senderName) => {
   if (!userSessions[phone]) {
     userSessions[phone] = {
@@ -169,6 +177,9 @@ const processLoanAgentChat = async (phone, userText, senderName) => {
 
   const activeSession = userSessions[phone];
 
+  // 🔒 गुगलकडे मेसेज जाण्यापूर्वी नंबर मास्क (लपवला) केला जात आहे
+  const safeUserText = maskUserData(userText);
+
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
@@ -191,7 +202,7 @@ const processLoanAgentChat = async (phone, userText, senderName) => {
     Previous Conversation History:
     ${activeSession.historyText}
 
-    Customer's Latest Message: "${userText}"
+    Customer's Latest Message: "${safeUserText}"
 
     Instructions:
     - Reply in friendly Marathi like a human loan consultant.
